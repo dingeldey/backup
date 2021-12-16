@@ -6,7 +6,7 @@ import traceback
 import configparser
 from os import PathLike
 from pathlib import Path
-
+import time
 from submodules.python_core_libs.logging.project_logger import Log
 from typing import List
 from subprocess import check_output
@@ -271,7 +271,7 @@ def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
     config = configparser.ConfigParser()
     config.read(os.path.join(get_path_to_backup_series(destination), 'cfg.ini'))
 
-    # this may happen if we ancounter a partial backup
+    # this may happen if we encounter a partial backup
     if not config.has_section("ACTIVE"):
         config.add_section("ACTIVE")
     config['ACTIVE']['timestamp'] = timestamp
@@ -289,8 +289,13 @@ def main():
     now = datetime.datetime.now()
     timestamp = datetime_to_string(now)
     print(timestamp + '.log')
-    create_logger_ini("logs/logger.ini", "logs/" + timestamp + '.log')
+    logfile_path: PathLike[str] = "logs/" + timestamp + '.log'
+    if os.path.isfile(logfile_path):
+        raise Exception("You are triggering to program to quickly, wait at least a second as the timestamps only have "
+                        "a one second resolution")
+    create_logger_ini("logs/logger.ini", logfile_path)
     Log.instance().set_ini("logs/logger.ini")
+
     remove_logger_ini("logs/logger.ini")
 
     success: bool = True
