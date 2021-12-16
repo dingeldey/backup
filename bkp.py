@@ -260,7 +260,7 @@ def backup(timestamp: str):
         logger.error('\n' + traceback.format_exc())
 
 
-def make_sources_absolute(args):
+def make_sources_absolute(args) -> List[PathLike[str]]:
     sources = []
     for i in range(len(args.sources)):
         sources.append(os.path.abspath(args.sources[i]))
