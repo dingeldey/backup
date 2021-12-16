@@ -284,19 +284,24 @@ def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
 
 
 def main():
-    remove_logger_ini("logs/logger.ini")
+    log_path: PathLike[str] = Path("logs")
+    log_ini_path: PathLike = Path(os.path.join(log_path, "logger.ini"))
+
+    if not os.path.isdir(log_path):
+        os.mkdir(log_path)
+    remove_logger_ini(log_ini_path)
     logger = Log.instance().logger
     now = datetime.datetime.now()
     timestamp = datetime_to_string(now)
-    print(timestamp + '.log')
-    logfile_path: PathLike[str] = "logs/" + timestamp + '.log'
+    logfile_path: PathLike[str] = Path(os.path.join(log_path, Path(timestamp + '.log')))
+    logger.info(f"writing log to {timestamp + '.log'}.")
     if os.path.isfile(logfile_path):
         raise Exception("You are triggering to program to quickly, wait at least a second as the timestamps only have "
                         "a one second resolution")
-    create_logger_ini("logs/logger.ini", logfile_path)
-    Log.instance().set_ini("logs/logger.ini")
+    create_logger_ini(log_ini_path, logfile_path)
+    Log.instance().set_ini(log_ini_path)
 
-    remove_logger_ini("logs/logger.ini")
+    remove_logger_ini(log_ini_path)
 
     success: bool = True
     try:

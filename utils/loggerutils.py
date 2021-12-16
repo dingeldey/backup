@@ -3,9 +3,10 @@ Collection of simple logger utility functions. As I do not want to place an ini 
 supply functions to create an and later delete it on completion of the code.
 """
 import os
+from os import PathLike
 
 
-def create_logger_ini(ini_filename: str, log_filename: str):
+def create_logger_ini(ini_filename: PathLike[str], log_filename: PathLike[str]):
     """
     Creates a logger ini which is used to set up the project logger.
     @param log_filename: name of log file to be written
@@ -40,7 +41,7 @@ def create_logger_ini(ini_filename: str, log_filename: str):
             f.write(logger_ini_content)
 
 
-def remove_logger_ini(filename: str):
+def remove_logger_ini(filename: PathLike[str]):
     """
     Removes the previously written log file.
     @param filename: ini file name
