@@ -131,4 +131,9 @@ dmypy.json
 
 #pycharm
 .idea
-test_data
+test
+build
+__pycache__
+dist
+logs
+release

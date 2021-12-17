@@ -6,16 +6,15 @@ import traceback
 import configparser
 from os import PathLike
 from pathlib import Path
-import time
 from submodules.python_core_libs.logging.project_logger import Log
 from typing import List
-from subprocess import check_output
+import subprocess
 from utils.rsyncpolicy import RsyncPolicy
 from utils.loggerutils import *
 from utils.datetimeutils import *
 
 
-def get_path_to_backup_series(destination_path: PathLike[str]) -> PathLike[str]:
+def get_path_to_backup_series(destination_path: PathLike) -> PathLike:
     """
     @param destination_path: Backup path
     @return: Returns the backup-path with a simple addition to indicate where the current backup-series is being placed.
@@ -24,8 +23,8 @@ def get_path_to_backup_series(destination_path: PathLike[str]) -> PathLike[str]:
     return Path(os.path.join(destination_path, Path("0")))
 
 
-def get_active_backup_path(timestamp: str, destination_path: PathLike[str], incremental: bool, filling: bool) \
-        -> PathLike[str]:
+def get_active_backup_path(timestamp: str, destination_path: PathLike, incremental: bool, filling: bool) \
+        -> PathLike:
     """
     Create a folder to backup to as well as moving old backups
 
@@ -52,7 +51,7 @@ def get_active_backup_path(timestamp: str, destination_path: PathLike[str], incr
         return full_backup(destination_path, timestamp)
 
 
-def full_backup(destination_path: PathLike[str], timestamp: str) -> PathLike[str]:
+def full_backup(destination_path: PathLike, timestamp: str) -> PathLike:
     """
     Delegates the full backup run.
     @param destination_path:
@@ -61,16 +60,16 @@ def full_backup(destination_path: PathLike[str], timestamp: str) -> PathLike[str
     """
     logger = Log.instance().logger
     logger.info("Starting full backup.")
-    path_to_backup_series: PathLike[str] = get_path_to_backup_series(destination_path)
+    path_to_backup_series: PathLike = get_path_to_backup_series(destination_path)
     current_full_exists: bool = os.path.isdir(path_to_backup_series)
     if current_full_exists:
         move_previous_backup(path_to_backup_series, destination_path)
 
-    active_path: PathLike[str] = make_folder_for_new_full_backup(path_to_backup_series, timestamp)
+    active_path: PathLike = make_folder_for_new_full_backup(path_to_backup_series, timestamp)
     return active_path
 
 
-def make_folder_for_new_full_backup(path_to_backup_series: PathLike[str], timestamp: str) -> PathLike[str]:
+def make_folder_for_new_full_backup(path_to_backup_series: PathLike, timestamp: str) -> PathLike:
     """
     Create a folder for the current backup run.
     @param path_to_backup_series: Base path to current backup series.
@@ -84,14 +83,14 @@ def make_folder_for_new_full_backup(path_to_backup_series: PathLike[str], timest
     # lastly we have to create the currently active backup folder.
     active_path: PathLike[str] = Path(os.path.join(path_to_backup_series, Path(timestamp)))
     if not os.path.isdir(active_path):
-        logger.info(f"Creating folder {active_path} for this backup run.")
+        logger.info(f"Creating folder {os.path.abspath(active_path)} for this backup run.")
         os.mkdir(active_path)
     else:
         logger.info(f"Folder {active_path} already exists. This is probably to a run fill run.")
     return active_path
 
 
-def move_previous_backup(path_to_backup_series: PathLike[str], destination_path: PathLike[str]):
+def move_previous_backup(path_to_backup_series: PathLike, destination_path: PathLike):
     """
     Moves the last backup series to a new path which is named by its most recent update within the series.
     @param path_to_backup_series: Path to backup series.
@@ -107,12 +106,12 @@ def move_previous_backup(path_to_backup_series: PathLike[str], destination_path:
     timestamp_of_last_backup: str = get_timestamp_of_last_backup(config)
     if not timestamp_of_last_backup:
         return
-    previous_active_path = os.path.join(destination_path, timestamp_of_last_backup)
-    logger.info(f"Moving full backup from current {path_to_backup_series} to {previous_active_path}")
-    os.rename(path_to_backup_series, previous_active_path)
+    new_path_of_previous_backup_series = os.path.join(destination_path, timestamp_of_last_backup)
+    logger.info(f"Moving full backup from current {os.path.abspath(path_to_backup_series)} to {os.path.abspath(new_path_of_previous_backup_series)}")
+    os.rename(path_to_backup_series, new_path_of_previous_backup_series)
 
 
-def incremental_backup(path_to_backup_series: PathLike[str], timestamp: str, filling: bool) -> PathLike[str]:
+def incremental_backup(path_to_backup_series: PathLike, timestamp: str, filling: bool) -> PathLike:
     """
     Creates or returns (when filling) active folder for incremental backup.
     @param path_to_backup_series: Backup series folder where all incrementals are saved.
@@ -130,10 +129,10 @@ def incremental_backup(path_to_backup_series: PathLike[str], timestamp: str, fil
 
     # read all sections
     last_backup: str = get_timestamp_of_last_backup(config)
-    logger.info(f"Making incremental backup based on backup from {last_backup}")
+    logger.info(f"Making incremental backup based on backup from {last_backup}.")
     base_path_for_incremental: PathLike[str] = Path(os.path.join(config[last_backup]['backup'], last_backup))
     active_path: PathLike[str] = Path(os.path.join(path_to_backup_series, timestamp))
-    logger.info(f"backup is written to {active_path}")
+    logger.info(f"Backup is written to {active_path}.")
 
     if not filling:
         shutil.copytree(base_path_for_incremental, active_path, copy_function=os.link)
@@ -165,11 +164,11 @@ def get_timestamp_of_last_backup(config: configparser) -> str:
         logger.info("No timestamp found. Must be a filling run.")
         return ""
     timestamp: str = datetime_to_string(max(sec_times))
-    logger.info(f"Found {timestamp} for a timestamp")
+    logger.info(f"Took {timestamp} as timestamp for current backup run.")
     return timestamp
 
 
-def sync_data(sources: List[str], active_backup_path: PathLike[str], rsync_policy: RsyncPolicy):
+def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPolicy):
     """
     Making the actual rsync call.
     @param sources: List of source paths
@@ -177,9 +176,24 @@ def sync_data(sources: List[str], active_backup_path: PathLike[str], rsync_polic
     @param rsync_policy: Policy in which the parameters of the rsync call are assembled.
     """
     logger = Log.instance().logger
-    for source_path in sources:
-        out = check_output(["rsync", rsync_policy.flags, "--delete", Path(source_path), active_backup_path, "-p"])
-        logger.info(out.decode("utf-8"))
+    is_not_nt_like: bool = os.name != 'nt'
+
+    if is_not_nt_like:
+        for source_path in sources:
+            logger.info(f"Mirroring {source_path} to {active_backup_path}.")
+            out = subprocess.check_output(["rsync", rsync_policy.flags, "--delete", source_path, active_backup_path, "-p"])
+            logger.info(out.decode("utf-8"))
+    else:
+        for source_path in sources:
+
+            logger.info(f"Mirroring {source_path} to {active_backup_path}.")
+            # WSL has different absolut path. These commands will determine it and apply it accordingly.
+            source_wsl_path = subprocess.check_output(['wsl', 'wslpath', os.path.abspath(source_path).replace(os.sep, '/')]).decode("UTF-8").strip("\n")
+            backup_wsl_path = subprocess.check_output(['wsl', 'wslpath', os.path.abspath(active_backup_path).replace(os.sep, '/')]).decode("UTF-8").strip("\n")
+            logger.info(f"[WINDOWS] Converted source path to WSL path to {source_wsl_path} and backup path became {backup_wsl_path}.")
+            out = subprocess.check_output(['wsl', 'rsync',  rsync_policy.flags, "--delete", '-p', source_wsl_path, backup_wsl_path]).decode("UTF-8")
+
+            logger.info(out)
 
 
 def rename_config_section(cfg_parser: configparser, section_from: str, section_to: str):
@@ -197,30 +211,23 @@ def rename_config_section(cfg_parser: configparser, section_from: str, section_t
     cfg_parser.remove_section(section_from)
 
 
-def backup(timestamp: str):
+def backup(timestamp: str, args):
     """
     Main function handling your backup request.
     @param timestamp: timestamp to identify backup
     """
     logger = Log.instance().logger
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--incremental', action='store_true', help="Indicate an incremental backup is desired.")
-    parser.add_argument('-d', '--destination', help="Path to destination")
-    parser.add_argument('-f', '--fill', action='store_true',
-                        help="If a backup is interrupted the backups status is marked to be partial, the increment "
-                             "would build on a partial predecessor. When fill "
-                             "is specified it will finish the last backup first and only then will it "
-                             "continue making a new backup.")
-    parser.add_argument('-s', '--sources', nargs='+', default=[], help="List of sources, comma separated.")
-    parser.add_argument('-c', '--checksum', action='store_true',
-                        help="Tell rsync to use checksums before copying file.")
-    args, unknown = parser.parse_known_args()
 
     if not args.destination:
         raise Exception("No destination via the -d flag specified. See --help.")
 
     if not args.sources:
         raise Exception("No sources via the -s flag specified. See --help.")
+
+    if args.incremental:
+        logger.info("Running an incremental backup.")
+    else:
+        logger.info("Running a full backup.")
 
     try:
         config = configparser.ConfigParser()
@@ -260,10 +267,18 @@ def backup(timestamp: str):
         logger.error('\n' + traceback.format_exc())
 
 
-def make_sources_absolute(args) -> List[PathLike[str]]:
+def make_sources_absolute(args) -> List[str]:
+    logger = Log.instance().logger
     sources = []
     for i in range(len(args.sources)):
-        sources.append(os.path.abspath(args.sources[i]))
+        source = args.sources[i]
+        ends_with_path_separator = source[-1] == os.sep
+        abs_source = os.path.abspath(source)
+        if ends_with_path_separator:
+            abs_source += os.sep
+        sources.append(abs_source)
+        logger.info(f"Making source absolute. {source} became {abs_source}.")
+
     return sources
 
 
@@ -284,39 +299,44 @@ def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
 
 
 def main():
-    log_path: PathLike[str] = Path("logs")
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-i', '--incremental', action='store_true', help="Indicate an incremental backup is desired.")
+    parser.add_argument('-d', '--destination', help="Path to destination")
+    parser.add_argument('-l', '--log_destination', default='logs', help="Path to log files to be used.")
+    parser.add_argument('-f', '--fill', action='store_true',
+                        help="If a backup is interrupted the backups status is marked to be partial, the increment "
+                             "would build on a partial predecessor. When fill "
+                             "is specified it will finish the last backup first and only then will it "
+                             "continue making a new backup.")
+    parser.add_argument('-s', '--sources', nargs='+', default=[], help="List of sources, comma separated.")
+    parser.add_argument('-c', '--checksum', action='store_true',
+                        help="Tell rsync to use checksums before copying file.")
+    args, unknown = parser.parse_known_args()
+
+    log_path: PathLike[str] = Path("logs/")
     log_ini_path: PathLike = Path(os.path.join(log_path, "logger.ini"))
 
-    if not os.path.isdir(log_path):
-        os.mkdir(log_path)
     remove_logger_ini(log_ini_path)
     logger = Log.instance().logger
     now = datetime.datetime.now()
     timestamp = datetime_to_string(now)
-    logfile_path: PathLike[str] = Path(os.path.join(log_path, Path(timestamp + '.log')))
-    logger.info(f"writing log to {timestamp + '.log'}.")
+    if not os.path.isdir(args.log_destination):
+        os.mkdir(args.log_destination)
+    logfile_path: PathLike[str] = Path(os.path.join(args.log_destination, Path(timestamp + '.log')))
+
     if os.path.isfile(logfile_path):
         raise Exception("You are triggering to program to quickly, wait at least a second as the timestamps only have "
                         "a one second resolution")
     create_logger_ini(log_ini_path, logfile_path)
     Log.instance().set_ini(log_ini_path)
-
+    logger.info(f"Writing log to {logfile_path}.")
     remove_logger_ini(log_ini_path)
 
-    success: bool = True
     try:
-        backup(timestamp)
+        backup(timestamp, args)
     except Exception as e:
         logger.error(e)
         logger.error('\n' + traceback.format_exc())
-        success = False
-    finally:
-        if success:
-            logger.info("Backup completed successfully.")
-        else:
-            logger.error("Backup failed.")
-
-
 
 
 if __name__ == '__main__':
