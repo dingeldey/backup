@@ -1,15 +1,13 @@
 # backup script
 This project features a script using rsync to make backups with the possibility of creating incremental backups. Only use it to backup directories to a backup directory. If you put files directly in the specified backup directory, when removing them it is not possible to remove them in the backup in an incremental backup.
 
-## Prequisits
+## Prerequisites
 - Python3 
 - rsync
+- wsl for windows rsync
 
 ## Attention
 Only tested on Linux
-
-## Todo
-- Introduce Windows support and include the possiblilty to use robocopy for Windows.
 
 ## Usage
 
