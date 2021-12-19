@@ -83,7 +83,7 @@ def make_folder_for_new_full_backup(path_to_backup_series: PathLike, timestamp: 
     # lastly we have to create the currently active backup folder.
     active_path: PathLike[str] = Path(os.path.join(path_to_backup_series, Path(timestamp)))
     if not os.path.isdir(active_path):
-        logger.info(f"Creating folder {os.path.abspath(active_path)} for this backup run.")
+        logger.info(f"Creating folder {active_path} for this backup run.")
         os.mkdir(active_path)
     else:
         logger.info(f"Folder {active_path} already exists. This is probably to a run fill run.")
@@ -107,7 +107,7 @@ def move_previous_backup(path_to_backup_series: PathLike, destination_path: Path
     if not timestamp_of_last_backup:
         return
     new_path_of_previous_backup_series = os.path.join(destination_path, timestamp_of_last_backup)
-    logger.info(f"Moving full backup from current {os.path.abspath(path_to_backup_series)} to {os.path.abspath(new_path_of_previous_backup_series)}")
+    logger.info(f"Moving full backup from current {path_to_backup_series} to {new_path_of_previous_backup_series}")
     os.rename(path_to_backup_series, new_path_of_previous_backup_series)
 
 
@@ -188,8 +188,8 @@ def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPo
 
             logger.info(f"Mirroring {source_path} to {active_backup_path}.")
             # WSL has different absolut path. These commands will determine it and apply it accordingly.
-            source_wsl_path = subprocess.check_output(['wsl', 'wslpath', os.path.abspath(source_path).replace(os.sep, '/')]).decode("UTF-8").strip("\n")
-            backup_wsl_path = subprocess.check_output(['wsl', 'wslpath', os.path.abspath(active_backup_path).replace(os.sep, '/')]).decode("UTF-8").strip("\n")
+            source_wsl_path = subprocess.check_output(['wsl', 'wslpath', source_path.replace(os.sep, '/')]).decode("UTF-8").strip("\n")
+            backup_wsl_path = subprocess.check_output(['wsl', 'wslpath', active_backup_path.replace(os.sep, '/')]).decode("UTF-8").strip("\n")
             logger.info(f"[WINDOWS] Converted source path to WSL path to {source_wsl_path} and backup path became {backup_wsl_path}.")
             out = subprocess.check_output(['wsl', 'rsync',  rsync_policy.flags, "--delete", '-p', source_wsl_path, backup_wsl_path]).decode("UTF-8")
 
@@ -232,7 +232,7 @@ def backup(timestamp: str, args):
     try:
         config = configparser.ConfigParser()
         config.read(os.path.join(get_path_to_backup_series(args.destination), 'cfg.ini'))
-        sources = make_sources_absolute(args)
+        sources = args.sources
         destination = args.destination
         filling = False     # Indicates that the backup is filling a previously failed backup.
         if config.has_section('ACTIVE'):
@@ -267,21 +267,6 @@ def backup(timestamp: str, args):
         logger.error('\n' + traceback.format_exc())
 
 
-def make_sources_absolute(args) -> List[str]:
-    logger = Log.instance().logger
-    sources = []
-    for i in range(len(args.sources)):
-        source = args.sources[i]
-        ends_with_path_separator = source[-1] == os.sep
-        abs_source = os.path.abspath(source)
-        if ends_with_path_separator:
-            abs_source += os.sep
-        sources.append(abs_source)
-        logger.info(f"Making source absolute. {source} became {abs_source}.")
-
-    return sources
-
-
 def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
     config = configparser.ConfigParser()
     config.read(os.path.join(get_path_to_backup_series(destination), 'cfg.ini'))
@@ -292,7 +277,7 @@ def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
     config['ACTIVE']['timestamp'] = timestamp
     config['ACTIVE']['status'] = "partial"
     config['ACTIVE']['sources'] = json.dumps(sources)
-    config['ACTIVE']['backup'] = os.path.abspath(get_path_to_backup_series(destination))
+    config['ACTIVE']['backup'] = str(get_path_to_backup_series(destination))
     config['ACTIVE']['cwd'] = os.getcwd()
     with open(os.path.join(get_path_to_backup_series(destination), 'cfg.ini'), 'w') as configfile:  # save
         config.write(configfile)
