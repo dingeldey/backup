@@ -188,8 +188,8 @@ def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPo
 
             logger.info(f"Mirroring {source_path} to {active_backup_path}.")
             # WSL has different absolut path. These commands will determine it and apply it accordingly.
-            source_wsl_path = subprocess.check_output(['wsl', 'wslpath', source_path.replace(os.sep, '/')]).decode("UTF-8").strip("\n")
-            backup_wsl_path = subprocess.check_output(['wsl', 'wslpath', active_backup_path.replace(os.sep, '/')]).decode("UTF-8").strip("\n")
+            source_wsl_path = subprocess.check_output(['wsl', 'wslpath', str(os.path.abspath(source_path)).replace(os.sep, '/')]).decode("UTF-8").strip("\n")
+            backup_wsl_path = subprocess.check_output(['wsl', 'wslpath', str(os.path.abspath(active_backup_path)).replace(os.sep, '/')]).decode("UTF-8").strip("\n")
             logger.info(f"[WINDOWS] Converted source path to WSL path to {source_wsl_path} and backup path became {backup_wsl_path}.")
             out = subprocess.check_output(['wsl', 'rsync',  rsync_policy.flags, "--delete", '-p', source_wsl_path, backup_wsl_path]).decode("UTF-8")
 
@@ -217,12 +217,15 @@ def backup(timestamp: str, args):
     @param timestamp: timestamp to identify backup
     """
     logger = Log.instance().logger
-
+    incremental: bool = args.incremental
     if not args.destination:
         raise Exception("No destination via the -d flag specified. See --help.")
 
     if not args.sources:
         raise Exception("No sources via the -s flag specified. See --help.")
+
+    if args.remove and args.fill:
+        raise Exception("Cannot remove and fill failed backup. Use only one flag as they exclude each other.")
 
     if args.incremental:
         logger.info("Running an incremental backup.")
@@ -236,20 +239,37 @@ def backup(timestamp: str, args):
         destination = args.destination
         filling = False     # Indicates that the backup is filling a previously failed backup.
         if config.has_section('ACTIVE'):
-            if config['ACTIVE']['status'] == 'partial' and not args.fill:
-                raise Exception("Current backup is partial, either run again with fill flag enabled or clean up "
-                                "backup manually.")
-            if config['ACTIVE']['status'] == 'partial' and args.fill:
+            if config['ACTIVE']['status'] == 'failed' and not args.fill and not args.remove:
+                raise Exception("Previous backup failed, either run again with fill flag enabled, with remove flag or "
+                                "clean up backup manually.")
+            elif config['ACTIVE']['status'] == 'failed' and args.fill:
                 timestamp = config["ACTIVE"]['timestamp']
                 filling = True
                 with open(os.path.join(get_path_to_backup_series(args.destination), 'cfg.ini'),
                           'w') as configfile:  # save
                     config.write(configfile)
 
-        if filling:
-            logger.info("This is a filling run.")
+                logger.info("Run continues as a filling run of a previously failed backup.")
+            elif config['ACTIVE']['status'] == 'failed' and args.remove:
+                failed_timestamp = config["ACTIVE"]['timestamp']
+                bkp_series_path = config["ACTIVE"]['backup']
+                failed_path = os.path.join(bkp_series_path, failed_timestamp)
+                logger.warning(f"Removing failed backup with timestamp {failed_timestamp} at {failed_path}.")
+                shutil.rmtree(failed_path)
+                if config.has_section("ACTIVE"):
+                    config.remove_section("ACTIVE")
+                    with open(os.path.join(get_path_to_backup_series(args.destination), 'cfg.ini'),
+                              'w') as configfile:  # save
+                        config.write(configfile)
+                if not config.sections():
+                    logger.warning("The failed backup was the backup series full backup. Recreating that.")
+                    if args.incremental:
+                        logger.warning("Falling back from incremental to full backup.")
+                        incremental = False
+            else:
+                raise Exception("Previous backup failed or is still active. Can't handle situation :/")
 
-        active_path: PathLike[str] = get_active_backup_path(timestamp, destination, args.incremental, filling)
+        active_path: PathLike[str] = get_active_backup_path(timestamp, destination, incremental, filling)
         make_entry_to_ini_for_active_backup(destination, sources, timestamp)
         rsync_policy: RsyncPolicy = RsyncPolicy(args.checksum)
         sync_data(sources, active_path, rsync_policy)
@@ -271,11 +291,11 @@ def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
     config = configparser.ConfigParser()
     config.read(os.path.join(get_path_to_backup_series(destination), 'cfg.ini'))
 
-    # this may happen if we encounter a partial backup
+    # this may happen if we encounter a failed backup
     if not config.has_section("ACTIVE"):
         config.add_section("ACTIVE")
     config['ACTIVE']['timestamp'] = timestamp
-    config['ACTIVE']['status'] = "partial"
+    config['ACTIVE']['status'] = "failed"
     config['ACTIVE']['sources'] = json.dumps(sources)
     config['ACTIVE']['backup'] = str(get_path_to_backup_series(destination))
     config['ACTIVE']['cwd'] = os.getcwd()
@@ -289,10 +309,11 @@ def main():
     parser.add_argument('-d', '--destination', help="Path to destination")
     parser.add_argument('-l', '--log_destination', default='logs', help="Path to log files to be used.")
     parser.add_argument('-f', '--fill', action='store_true',
-                        help="If a backup is interrupted the backups status is marked to be partial, the increment "
-                             "would build on a partial predecessor. When fill "
+                        help="If a backup is interrupted the backups status is marked failed, the increment "
+                             "would build on a failed predecessor. When fill "
                              "is specified it will finish the last backup first and only then will it "
                              "continue making a new backup.")
+    parser.add_argument('-r', '--remove', action='store_true', help="Removes failed backup and starts clean.")
     parser.add_argument('-s', '--sources', nargs='+', default=[], help="List of sources, comma separated.")
     parser.add_argument('-c', '--checksum', action='store_true',
                         help="Tell rsync to use checksums before copying file.")
@@ -307,8 +328,13 @@ def main():
     timestamp = datetime_to_string(now)
     if not os.path.isdir(args.log_destination):
         os.mkdir(args.log_destination)
-    logfile_path: PathLike[str] = Path(os.path.join(args.log_destination, Path(timestamp + '.log')))
 
+    for source in args.sources:
+        if os.path.isfile(source) or source[-1] == "/" or source[-1] == os.sep or source[-1] == "\\\\":
+            raise Exception('Backup currently only supports backing up directories not single files. Make sure that '
+                            'source does not end with path seperator.')
+
+    logfile_path: PathLike[str] = Path(os.path.join(args.log_destination, Path(timestamp + '.log')))
     if os.path.isfile(logfile_path):
         raise Exception("You are triggering to program to quickly, wait at least a second as the timestamps only have "
                         "a one second resolution")
