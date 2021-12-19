@@ -1,6 +1,9 @@
 # backup script
 This project features a script using rsync to make backups with the possibility of creating incremental backups. Only use it to backup directories to a backup directory. If you put files directly in the specified backup directory, when removing them it is not possible to remove them in the backup in an incremental backup.
 
+## TODO
+Fail when source appears to be empty.
+
 ## Prerequisites
 - Python3 
 - rsync
