@@ -288,6 +288,7 @@ def backup(timestamp: str, args):
 
 
 def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
+    logger = Log.instance().logger
     config = configparser.ConfigParser()
     config.read(os.path.join(get_path_to_backup_series(destination), 'cfg.ini'))
 
@@ -313,21 +314,29 @@ def main():
                              "would build on a failed predecessor. When fill "
                              "is specified it will finish the last backup first and only then will it "
                              "continue making a new backup.")
+    parser.add_argument('-w', '--cwd', help="Path specify a path in which the program shall execute. CWD.")
     parser.add_argument('-r', '--remove', action='store_true', help="Removes failed backup and starts clean.")
     parser.add_argument('-s', '--sources', nargs='+', default=[], help="List of sources, comma separated.")
     parser.add_argument('-c', '--checksum', action='store_true',
                         help="Tell rsync to use checksums before copying file.")
+
     args, unknown = parser.parse_known_args()
 
-    log_path: PathLike[str] = Path("logs/")
+    if args.cwd is not None:
+        os.chdir(Path(args.cwd))
+        print(os.getcwd())
+
+    log_path: Path = Path("logs/")
+    if args.log_destination is not None:
+        log_path = Path(args.log_destination)
+
+    log_path.mkdir(parents=True, exist_ok=True)
     log_ini_path: PathLike = Path(os.path.join(log_path, "logger.ini"))
 
     remove_logger_ini(log_ini_path)
     logger = Log.instance().logger
     now = datetime.datetime.now()
     timestamp = datetime_to_string(now)
-    if not os.path.isdir(args.log_destination):
-        os.mkdir(args.log_destination)
 
     for source in args.sources:
         if os.path.isfile(source) or source[-1] == "/" or source[-1] == os.sep or source[-1] == "\\\\":

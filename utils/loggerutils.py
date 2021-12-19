@@ -16,7 +16,7 @@ def create_logger_ini(ini_filename: PathLike, log_filename: PathLike):
 
     log_filename_rep = str(log_filename)
     if os.name == 'nt':
-        log_filename_rep = str(log_filename).replace("\\", "/")
+        log_filename_rep = str(log_filename).replace(os.sep, "/")
 
     logger_ini_content = """[formatters]
         keys=default
