@@ -185,13 +185,14 @@ def check_if_sources_are_empty(sources: List[str]):
             raise Exception("Directory is empty. This causes a backup to fail")
 
 
-def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPolicy) -> ChangeSummary:
+def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPolicy) -> Tuple[ChangeSummary, str]:
     """
     Making the actual rsync call.
     @param sources: List of source paths
     @param active_backup_path: backup path for the current timestamp.
     @param rsync_policy: Policy in which the parameters of the rsync call are assembled.
-    @return: Change summary of rsync. Can be used to see if a really large amount of files was removed.
+    @return: 1) Change summary of rsync. Can be used to see if a really large amount of files was removed.
+             2) Used rsync cmd
     """
     logger = Log.instance().logger
     is_not_nt_like: bool = os.name != 'nt'
@@ -203,7 +204,15 @@ def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPo
         logger.info(out)
         summary: ChangeSummary = ChangeSummary(out)
         logger.info(summary.get_summary)
-        return summary
+
+        rsync_cmd = "rsync "
+        for flag in rsync_policy.flags:
+            rsync_cmd = rsync_cmd + " " + flag
+        for source in sources:
+            rsync_cmd = rsync_cmd + " " + source
+
+        rsync_cmd = rsync_cmd + " " + active_backup_path
+        return summary, rsync_cmd
 
     else:
         check_if_sources_are_empty(sources)
@@ -226,7 +235,15 @@ def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPo
         logger.info(out)
         summary: ChangeSummary = ChangeSummary(out)
         logger.info(summary.get_summary)
-        return summary
+
+        rsync_cmd = "rsync "
+        for flag in rsync_policy.flags:
+            rsync_cmd = rsync_cmd + " " + flag
+        for source in wsl_sources:
+            rsync_cmd = rsync_cmd + " " + source
+
+        rsync_cmd = rsync_cmd + " " + backup_wsl_path
+        return summary, rsync_cmd
 
 
 def rename_config_section(cfg_parser: configparser, section_from: str, section_to: str):
@@ -307,12 +324,13 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
         active_path: PathLike[str] = get_active_backup_path(timestamp, destination, incremental, continuing)
         make_entry_to_ini_for_active_backup(destination, sources, timestamp)
         rsync_policy: RsyncPolicy = RsyncPolicy(args.flag)
-        summary: ChangeSummary = sync_data(sources, str(active_path), rsync_policy)
+        summary, rsync_cmd = sync_data(sources, str(active_path), rsync_policy)
 
         # mark backup as success
         config = configparser.ConfigParser()
         config.read(os.path.join(get_path_to_backup_series(args.destination), 'cfg.ini'))
         config['ACTIVE']['status'] = "complete"
+        config['ACTIVE']['rsyncCMD'] = rsync_cmd
         rename_config_section(config, "ACTIVE", timestamp)
         with open(os.path.join(get_path_to_backup_series(args.destination), 'cfg.ini'), 'w') as configfile:  # save
             config.write(configfile)

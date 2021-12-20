@@ -82,7 +82,7 @@ def make_release():
 def main():
     build()
     make_release()
-    # cleanup()
+    cleanup()
 
 
 if __name__ == "__main__":
