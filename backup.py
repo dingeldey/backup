@@ -1,16 +1,16 @@
 import argparse
-import json
-import shutil
-import os.path
-import traceback
 import configparser
-from submodules.python_core_libs.logging.project_logger import Log
-from typing import List
+import json
+import os.path
+import shutil
 import subprocess
-from utils.rsyncpolicy import RsyncPolicy
-from utils.loggerutils import *
+import traceback
+from typing import List, Tuple
+from submodules.python_core_libs.logging.project_logger import Log
+from utils.changesummary import ChangeSummary
 from utils.datetimeutils import *
-
+from utils.loggerutils import *
+from utils.rsyncpolicy import RsyncPolicy
 
 
 def get_path_to_backup_series(destination_path: PathLike) -> PathLike:
@@ -167,34 +167,66 @@ def get_timestamp_of_last_backup(config: configparser) -> str:
     return timestamp
 
 
-def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPolicy):
+def check_if_sources_are_empty(sources: List[str]):
+    """
+    Checks if sources are not empty. If it encounters an empty source it raises an
+    exception to cause the backup to fail.
+    @param sources: List of source paths.
+    """
+    for source in sources:
+        if os.path.isfile(source):
+            continue
+
+        if not os.path.isdir(source):
+            raise Exception("Specified source does not exist.")
+
+        # check if empty
+        if not os.listdir(source):
+            raise Exception("Directory is empty. This causes a backup to fail")
+
+
+def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPolicy) -> ChangeSummary:
     """
     Making the actual rsync call.
     @param sources: List of source paths
     @param active_backup_path: backup path for the current timestamp.
     @param rsync_policy: Policy in which the parameters of the rsync call are assembled.
+    @return: Change summary of rsync. Can be used to see if a really large amount of files was removed.
     """
     logger = Log.instance().logger
     is_not_nt_like: bool = os.name != 'nt'
 
     if is_not_nt_like:
+        check_if_sources_are_empty(sources)
         logger.info(f"Mirroring {sources} to {active_backup_path}.")
-        out = subprocess.check_output(['rsync', *rsync_policy.flags, *sources, active_backup_path])
-        logger.info(out.decode("utf-8"))
+        out = subprocess.check_output(['rsync', *rsync_policy.flags, *sources, active_backup_path]).decode("utf-8")
+        logger.info(out)
+        summary: ChangeSummary = ChangeSummary(out)
+        logger.info(summary.get_summary)
+        return summary
+
     else:
+        check_if_sources_are_empty(sources)
         logger.info(f"Mirroring {sources} to {active_backup_path}.")
 
         # converting paths to wsl-paths
         wsl_sources: List[str] = []
         for source_path in sources:
-            wsl_sources.append(subprocess.check_output(['wsl', 'wslpath', str(os.path.abspath(source_path)).replace(os.sep, '/')]).decode("UTF-8").strip("\n"))
+            wsl_sources.append(subprocess.check_output(
+                ['wsl', 'wslpath', str(os.path.abspath(source_path)).replace(os.sep, '/')]).decode("UTF-8").strip("\n"))
 
         # WSL has different absolut path. These commands will determine it and apply it accordingly.
-        backup_wsl_path = subprocess.check_output(['wsl', 'wslpath', str(os.path.abspath(active_backup_path)).replace(os.sep, '/')]).decode("UTF-8").strip("\n")
-        logger.info(f"[WINDOWS] Converted source path to WSL path to {wsl_sources} and backup path became {backup_wsl_path}.")
-        out = subprocess.check_output(['wsl', 'rsync', *rsync_policy.flags, *wsl_sources, backup_wsl_path]).decode("UTF-8")
-
+        backup_wsl_path = subprocess.check_output(
+            ['wsl', 'wslpath', str(os.path.abspath(active_backup_path)).replace(os.sep, '/')]).decode("UTF-8").strip(
+            "\n")
+        logger.info(
+            f"[WINDOWS] Converted source path to WSL path to {wsl_sources} and backup path became {backup_wsl_path}.")
+        out = subprocess.check_output(['wsl', 'rsync', *rsync_policy.flags, *wsl_sources, backup_wsl_path]).decode(
+            "UTF-8")
         logger.info(out)
+        summary: ChangeSummary = ChangeSummary(out)
+        logger.info(summary.get_summary)
+        return summary
 
 
 def rename_config_section(cfg_parser: configparser, section_from: str, section_to: str):
@@ -212,10 +244,12 @@ def rename_config_section(cfg_parser: configparser, section_from: str, section_t
     cfg_parser.remove_section(section_from)
 
 
-def backup(timestamp: str, args):
+def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
     """
     Main function handling your backup request.
     @param timestamp: timestamp to identify backup
+    @param args: Arguments as parsed by argparser
+    @return: True on success else False
     """
     logger = Log.instance().logger
     incremental: bool = args.incremental
@@ -238,7 +272,7 @@ def backup(timestamp: str, args):
         config.read(os.path.join(get_path_to_backup_series(args.destination), 'cfg.ini'))
         sources = args.source
         destination = args.destination
-        continuing = False     # Indicates that the backup is continuing a previously failed backup.
+        continuing = False  # Indicates that the backup is continuing a previously failed backup.
         if config.has_section('ACTIVE'):
             if config['ACTIVE']['status'] == 'failed' and not args.cont and not args.remove:
                 raise Exception("Previous backup failed, either run again with cont flag enabled, with remove flag or "
@@ -273,7 +307,7 @@ def backup(timestamp: str, args):
         active_path: PathLike[str] = get_active_backup_path(timestamp, destination, incremental, continuing)
         make_entry_to_ini_for_active_backup(destination, sources, timestamp)
         rsync_policy: RsyncPolicy = RsyncPolicy(args.flag)
-        sync_data(sources, active_path, rsync_policy)
+        summary: ChangeSummary = sync_data(sources, str(active_path), rsync_policy)
 
         # mark backup as success
         config = configparser.ConfigParser()
@@ -283,9 +317,12 @@ def backup(timestamp: str, args):
         with open(os.path.join(get_path_to_backup_series(args.destination), 'cfg.ini'), 'w') as configfile:  # save
             config.write(configfile)
 
+        return True, summary
+
     except Exception as e:
         logger.error(e)
         logger.error('\n' + traceback.format_exc())
+        return False, ChangeSummary("")
 
 
 def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
@@ -318,7 +355,9 @@ def main():
     parser.add_argument('-w', '--cwd', help="Path specify a path in which the program shall execute. CWD.")
     parser.add_argument('-r', '--remove', action='store_true', help="Removes failed backup and starts clean.")
     parser.add_argument('-s', '--source', action='append', help="Specify a source")
-    parser.add_argument('-f', '--flag', action='append', metavar='rsync_flag', help='Flag to be be passed to rsync. Use like this -f --delete, to pass --delete to rsync')
+    parser.add_argument('-f', '--flag', action='append', metavar='rsync_flag', help='Flag to be be passed to rsync. '
+                                                                                    'Use like this -f --delete, '
+                                                                                    'to pass --delete to rsync')
     args, unknown = parser.parse_known_args()
 
     print(args.source)
@@ -348,11 +387,12 @@ def main():
     logger.info(f"Writing log to {logfile_path}.")
     remove_logger_ini(log_ini_path)
 
-    try:
-        backup(timestamp, args)
-    except Exception as e:
-        logger.error(e)
-        logger.error('\n' + traceback.format_exc())
+    success, summary = backup(timestamp, args)
+
+    if success:
+        logger.info("Backup terminated successfully.")
+    else:
+        logger.error("Backup terminated with errors.")
 
 
 if __name__ == '__main__':
