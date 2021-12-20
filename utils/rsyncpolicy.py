@@ -1,21 +1,13 @@
+from typing import List
+
+
 class RsyncPolicy:
     """
     Copy policy. Specifying rsync parameters.
     """
-
-    def __init__(self, use_checksum: bool):
-        """
-        @param use_checksum: Makes rsync compare checksums. Significant slow down.
-        """
-        self.__use_checksum: bool = use_checksum
+    def __init__(self, rsync_params: List[str]):
+        self.__rsync_params: List[str] = rsync_params
 
     @property
-    def flags(self):
-        flags_value = "-av"
-        if self.use_checksum:
-            flags_value = flags_value + 'c'
-        return flags_value
-
-    @property
-    def use_checksum(self) -> bool:
-        return self.__use_checksum
+    def flags(self) -> List[str]:
+        return self.__rsync_params
