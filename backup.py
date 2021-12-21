@@ -355,7 +355,7 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
                 os.symlink(args.link_path,
                            os.path.join(os.path.join(args.destination, "current_series"), timestamp))
             except Exception as e:
-                logger.warning(
+                logger.error(
                     f"I wish I could create a link for you, but you have to blame your Windows settings for this error\n"
                     f"{str(e)}")
 
@@ -436,7 +436,10 @@ def main():
     success, summary = backup(timestamp, args)
 
     if success:
-        logger.info(f"Backup terminated successfully, {logger.warning.counter} warnings and {logger.error.counter} errors.")
+        if logger.error.counter == 0:
+            logger.info(f"Backup terminated successfully, {logger.warning.counter} warnings and {logger.error.counter} errors.")
+        else:
+            logger.info(f"Backup encountered errors, but reached a successful state. {logger.warning.counter} warnings and {logger.error.counter} errors.")
     else:
         logger.error(f"Backup terminated with errors, {logger.warning.counter} warnings and {logger.error.counter} errors.")
 

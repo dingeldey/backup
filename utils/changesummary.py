@@ -12,11 +12,10 @@ class ChangeSummary:
 
         if not rsync_summary_string:
             return
-        if rsync_summary_string.find("sending incremental file list") > 0:
+        if not rsync_summary_string.find("sending incremental file list") < 0 and rsync_summary_string.find("(DRY RUN)") < 0:
             self.__num_changes_tot = rsync_summary_string.count('\n') - 4
             self.__num_changes_directories = rsync_summary_string.count('/\n')
             self.__num_changes_files = self.__num_changes_tot - self.__num_changes_directories
-
 
     @property
     def get_summary(self):
