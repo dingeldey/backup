@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import traceback
 from typing import List, Tuple
+import logging
 from submodules.python_core_libs.logging.project_logger import Log
 from utils.changesummary import ChangeSummary
 from utils.datetimeutils import *
@@ -17,9 +18,9 @@ def get_path_to_backup_series(destination_path: PathLike) -> PathLike:
     """
     @param destination_path: Backup path
     @return: Returns the backup-path with a simple addition to indicate where the current backup-series is being placed.
-             I chose '0' as this places the current backup in from of the folder and makes it easy to identify.
+             I chose 'current_series' as this places the current backup in from of the folder and makes it easy to identify.
     """
-    return Path(os.path.join(destination_path, Path("0")))
+    return Path(os.path.join(destination_path, Path("current_series")))
 
 
 def get_active_backup_path(timestamp: str, destination_path: PathLike, incremental: bool, continuing: bool) \
@@ -85,7 +86,7 @@ def make_folder_for_new_full_backup(path_to_backup_series: PathLike, timestamp: 
         logger.info(f"Creating folder {active_path} for this backup run.")
         os.mkdir(active_path)
     else:
-        logger.info(f"Folder {active_path} already exists. This is probably continue run.")
+        logger.warning(f"Folder {active_path} already exists. This is probably filling run.")
     return active_path
 
 
@@ -127,9 +128,11 @@ def incremental_backup(path_to_backup_series: PathLike, timestamp: str, continui
     config.read(os.path.join(path_to_backup_series, 'cfg.ini'))
 
     # read all sections
-    last_backup: str = get_timestamp_of_last_backup(config)
-    logger.info(f"Making incremental backup based on backup from {last_backup}.")
-    base_path_for_incremental: PathLike[str] = Path(os.path.join(config[last_backup]['backup'], last_backup))
+    last_backup_timestamp: str = get_timestamp_of_last_backup(config)
+    logger.info(f"Making incremental backup based on backup from {last_backup_timestamp}.")
+    base_path_for_incremental: PathLike[str] = Path(
+        os.path.join(os.path.join(config[last_backup_timestamp]['backup'], 'current_series'), last_backup_timestamp))
+    c
     active_path: PathLike[str] = Path(os.path.join(path_to_backup_series, timestamp))
     logger.info(f"Backup is written to {active_path}.")
 
@@ -144,8 +147,8 @@ def get_timestamp_of_last_backup(config: configparser) -> str:
     """
     Searches in the cfg.ini file of the current backup run for the most recent backup folder and
     returns a string corresponding to the last timestamp.
-    @param config:
-    @return:
+    @param config: Config parser to current backup runs series ini-file.
+    @return: timestamp of last run
     """
     logger = Log.instance().logger
     sections: List[str] = config.sections()
@@ -301,17 +304,23 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
                           'w') as configfile:  # save
                     config.write(configfile)
 
-                logger.info("Run continues as a continuing run of a previously failed backup.")
+                # if there is only an ACTIVE section, an incremental backup does not make sense and
+                # we need to fall back to a ful backup.
+                if len(config.sections()) == 1:
+                    incremental = False
+                    logger.warning("Cannot proceed with incremental backup. Falling back to a filling backup.")
+
+                logger.warning("Run-type changed to a filling backup.")
             elif config['ACTIVE']['status'] == 'failed' and args.remove:
                 failed_timestamp = config["ACTIVE"]['timestamp']
-                bkp_series_path = config["ACTIVE"]['backup']
+                bkp_series_path = os.path.join(config["ACTIVE"]['backup'], "current_series")
                 failed_path = os.path.join(bkp_series_path, failed_timestamp)
                 logger.warning(f"Removing failed backup with timestamp {failed_timestamp} at {failed_path}.")
-                shutil.rmtree(failed_path)
+                shutil.rmtree(failed_path, ignore_errors=True)
                 if config.has_section("ACTIVE"):
                     config.remove_section("ACTIVE")
                     with open(os.path.join(get_path_to_backup_series(args.destination), 'cfg.ini'),
-                              'w') as configfile:  # save
+                              'w') as configfile:
                         config.write(configfile)
                 if not config.sections():
                     logger.warning("The failed backup was the backup series full backup. Recreating that.")
@@ -319,7 +328,8 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
                         logger.warning("Falling back from incremental to full backup.")
                         incremental = False
             else:
-                raise Exception("Previous backup failed or is still active. Can't handle situation :/")
+                raise Exception("Previous backup failed or is still active. Can't handle situation :/.\nResolve "
+                                "manually, e.g. by renaming the current series, which will trigger a new series.")
 
         active_path: PathLike[str] = get_active_backup_path(timestamp, destination, incremental, continuing)
         make_entry_to_ini_for_active_backup(destination, sources, timestamp)
@@ -334,6 +344,14 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
         rename_config_section(config, "ACTIVE", timestamp)
         with open(os.path.join(get_path_to_backup_series(args.destination), 'cfg.ini'), 'w') as configfile:  # save
             config.write(configfile)
+
+        if args.link_path is not None:
+            if os.name == 'nt':
+                logger.warning(
+                    "I wish I could create a link for you with default rights, but you have to blame Windows for that.")
+            else:
+                os.symlink(args.link_path,
+                           os.path.join(os.path.join(args.destination, "current_series"), timestamp))
 
         return True, summary
 
@@ -354,7 +372,7 @@ def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
     config['ACTIVE']['timestamp'] = timestamp
     config['ACTIVE']['status'] = "failed"
     config['ACTIVE']['sources'] = json.dumps(sources)
-    config['ACTIVE']['backup'] = str(get_path_to_backup_series(destination))
+    config['ACTIVE']['backup'] = str(destination)
     config['ACTIVE']['cwd'] = os.getcwd()
     with open(os.path.join(get_path_to_backup_series(destination), 'cfg.ini'), 'w') as configfile:  # save
         config.write(configfile)
@@ -365,7 +383,9 @@ def main():
     parser.add_argument('-i', '--incremental', action='store_true', help="Indicate an incremental backup is desired.")
     parser.add_argument('-d', '--destination', help="Path to destination")
     parser.add_argument('-l', '--log_destination', default='logs', help="Path to log files to be used.")
-    parser.add_argument('-c', '--cont', action='store_true', help="cont == continue: If a backup is interrupted the "
+    parser.add_argument('--link_path', help="Specify a path to a symbolic link to be created pointing to the most"
+                                            "recent backup.")
+    parser.add_argument('-c', '--cont', action='store_true', help="cont == continue: If a backup is interrupted the"
                                                                   "backups status is marked failed, the increment "
                                                                   "would build on a failed predecessor. When cont is "
                                                                   "specified it will finish the last backup first and "
@@ -376,6 +396,7 @@ def main():
     parser.add_argument('-f', '--flag', action='append', metavar='rsync_flag', help='Flag to be be passed to rsync. '
                                                                                     'Use like this -f --delete, '
                                                                                     'to pass --delete to rsync')
+
     args, unknown = parser.parse_known_args()
 
     print(args.source)
@@ -393,6 +414,7 @@ def main():
 
     remove_logger_ini(log_ini_path)
     logger = Log.instance().logger
+
     now = datetime.datetime.now()
     timestamp = datetime_to_string(now)
 
@@ -408,9 +430,9 @@ def main():
     success, summary = backup(timestamp, args)
 
     if success:
-        logger.info("Backup terminated successfully.")
+        logger.info(f"Backup terminated successfully, {logger.warning.counter} warnings and {logger.error.counter} errors.")
     else:
-        logger.error("Backup terminated with errors.")
+        logger.error(f"Backup terminated with errors, {logger.warning.counter} warnings and {logger.error.counter} errors.")
 
 
 if __name__ == '__main__':
