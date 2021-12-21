@@ -6,12 +6,16 @@ class ChangeSummary:
         """
         @param rsync_summary_string: Result string from rsync command.
         """
-        self.__num_changes_tot = rsync_summary_string.count('\n') - 4
-        self.__num_changes_directories = rsync_summary_string.count('/\n')
-        self.__num_changes_files = self.__num_changes_tot - self.__num_changes_directories
+        self.__num_changes_tot = 0
+        self.__num_changes_directories = 0
+        self.__num_changes_files = 0
 
         if not rsync_summary_string:
-            self.__num_changes_tot = 0
+            return
+        if rsync_summary_string.find("sending incremental file list") > 0:
+            self.__num_changes_tot = rsync_summary_string.count('\n') - 4
+            self.__num_changes_directories = rsync_summary_string.count('/\n')
+            self.__num_changes_files = self.__num_changes_tot - self.__num_changes_directories
 
 
     @property

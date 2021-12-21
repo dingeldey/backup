@@ -6,7 +6,9 @@ class RsyncPolicy:
     Copy policy. Specifying rsync parameters.
     """
     def __init__(self, rsync_params: List[str]):
-        self.__rsync_params: List[str] = rsync_params
+        self.__rsync_params: List[str] = []
+        if rsync_params is not None:
+            self.__rsync_params: List[str] = rsync_params
 
     @property
     def flags(self) -> List[str]:

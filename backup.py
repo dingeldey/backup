@@ -203,11 +203,6 @@ def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPo
     if is_not_nt_like:
         check_if_sources_are_empty(sources)
         logger.info(f"Mirroring {sources} to {active_backup_path}.")
-        out = subprocess.check_output(['rsync', *rsync_policy.flags, *sources, active_backup_path]).decode("utf-8")
-        logger.info(out)
-        summary: ChangeSummary = ChangeSummary(out)
-        logger.info(summary.get_summary)
-
         rsync_cmd = "rsync "
         for flag in rsync_policy.flags:
             rsync_cmd = rsync_cmd + " " + flag
@@ -215,6 +210,12 @@ def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPo
             rsync_cmd = rsync_cmd + " " + source
 
         rsync_cmd = rsync_cmd + " " + active_backup_path
+        logger.info(f"rsync command reads: {rsync_cmd}")
+        out = subprocess.check_output(['rsync', *rsync_policy.flags, *sources, active_backup_path]).decode("utf-8")
+        logger.info(f"out: {out}")
+        summary: ChangeSummary = ChangeSummary(out)
+        logger.info(summary.get_summary)
+
         return summary, rsync_cmd
 
     else:
@@ -233,11 +234,6 @@ def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPo
             "\n")
         logger.info(
             f"[WINDOWS] Converted source path to WSL path to {wsl_sources} and backup path became {backup_wsl_path}.")
-        out = subprocess.check_output(['wsl', 'rsync', *rsync_policy.flags, *wsl_sources, backup_wsl_path]).decode(
-            "UTF-8")
-        logger.info(out)
-        summary: ChangeSummary = ChangeSummary(out)
-        logger.info(summary.get_summary)
 
         rsync_cmd = "rsync "
         for flag in rsync_policy.flags:
@@ -246,6 +242,15 @@ def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPo
             rsync_cmd = rsync_cmd + " " + source
 
         rsync_cmd = rsync_cmd + " " + backup_wsl_path
+
+        logger.info(f"rsync command reads: {rsync_cmd}")
+
+        out = subprocess.check_output(['wsl', 'rsync', *rsync_policy.flags, *wsl_sources, backup_wsl_path]).decode(
+            "UTF-8")
+        logger.info(f"out: {out}")
+        summary: ChangeSummary = ChangeSummary(out)
+        logger.info(summary.get_summary)
+
         return summary, rsync_cmd
 
 
@@ -346,12 +351,13 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
             config.write(configfile)
 
         if args.link_path is not None:
-            if os.name == 'nt':
-                logger.warning(
-                    "I wish I could create a link for you with default rights, but you have to blame Windows for that.")
-            else:
+            try:
                 os.symlink(args.link_path,
                            os.path.join(os.path.join(args.destination, "current_series"), timestamp))
+            except Exception as e:
+                logger.warning(
+                    f"I wish I could create a link for you, but you have to blame your Windows settings for this error\n"
+                    f"{str(e)}")
 
         return True, summary
 
