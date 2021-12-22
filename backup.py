@@ -132,7 +132,7 @@ def incremental_backup(path_to_backup_series: PathLike, timestamp: str, continui
     logger.info(f"Making incremental backup based on backup from {last_backup_timestamp}.")
     base_path_for_incremental: PathLike[str] = Path(
         os.path.join(os.path.join(config[last_backup_timestamp]['backup'], 'current_series'), last_backup_timestamp))
-    c
+
     active_path: PathLike[str] = Path(os.path.join(path_to_backup_series, timestamp))
     logger.info(f"Backup is written to {active_path}.")
 
@@ -352,8 +352,11 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
 
         if args.link_path is not None:
             try:
-                os.symlink(args.link_path,
-                           os.path.join(os.path.join(args.destination, "current_series"), timestamp))
+                target_symlink_path = os.path.join(os.path.join(args.destination, "current_series"), timestamp)
+                logger.info(f"Trying to create symlink to {target_symlink_path}")
+                if os.path.exists(args.link_path):
+                    os.rmdir(args.link_path)
+                Path(args.link_path).symlink_to(target_symlink_path, target_is_directory=True)
             except Exception as e:
                 logger.error(
                     f"I wish I could create a link for you, but you have to blame your Windows settings for this error\n"
