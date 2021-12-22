@@ -434,8 +434,6 @@ def main():
 
     args, unknown = parser.parse_known_args()
 
-    print(args.source)
-
     if args.cwd is not None:
         os.chdir(Path(args.cwd))
         print(os.getcwd())
