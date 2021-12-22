@@ -43,7 +43,7 @@ def cleanup():
         shutil.rmtree('dist')
     if os.path.isdir('build'):
         shutil.rmtree('build')
-    if os.path.isfile('build'):
+    if os.path.isfile('backup.spec'):
         os.remove('backup.spec')
 
 
