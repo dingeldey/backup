@@ -217,14 +217,14 @@ def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPo
         check_if_sources_are_empty(sources)
         logger.info(f"Mirroring {sources} to {active_backup_path}.")
         rsync_cmd = "rsync "
-        for flag in rsync_policy.flags:
+        for flag in rsync_policy.parameters:
             rsync_cmd = rsync_cmd + " " + flag
         for source in sources:
             rsync_cmd = rsync_cmd + " " + source
 
         rsync_cmd = rsync_cmd + " " + active_backup_path
         logger.info(f"rsync command reads: {rsync_cmd}")
-        out = subprocess.check_output(['rsync', *rsync_policy.flags, *sources, active_backup_path]).decode("utf-8")
+        out = subprocess.check_output(['rsync', *rsync_policy.parameters, *sources, active_backup_path]).decode("utf-8")
         logger.info(f"out: {out}")
         summary: ChangeSummary = ChangeSummary(out)
         logger.info(summary.get_summary)
@@ -249,7 +249,7 @@ def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPo
             f"[WINDOWS] Converted source path to WSL path to {wsl_sources} and backup path became {backup_wsl_path}.")
 
         rsync_cmd = "rsync "
-        for flag in rsync_policy.flags:
+        for flag in rsync_policy.parameters:
             rsync_cmd = rsync_cmd + " " + flag
         for source in wsl_sources:
             rsync_cmd = rsync_cmd + " " + source
@@ -258,7 +258,7 @@ def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPo
 
         logger.info(f"rsync command reads: {rsync_cmd}")
 
-        out = subprocess.check_output(['wsl', 'rsync', *rsync_policy.flags, *wsl_sources, backup_wsl_path]).decode(
+        out = subprocess.check_output(['wsl', 'rsync', *rsync_policy.parameters, *wsl_sources, backup_wsl_path]).decode(
             "UTF-8")
         logger.info(f"out: {out}")
         summary: ChangeSummary = ChangeSummary(out)
@@ -289,23 +289,28 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
     @param args: Arguments as parsed by argparser
     @return: True on success else False
     """
-    logger = Log.instance().logger
-    incremental: bool = args.incremental
-    if not args.destination:
-        raise Exception("No destination via the -d flag specified. See --help.")
-
-    if not args.source:
-        raise Exception("No sources via the -s flag specified. See --help.")
-
-    if args.remove and args.cont:
-        raise Exception("Cannot remove or continue failed backup. Use only one flag as they exclude each other.")
-
-    if incremental:
-        logger.info("Running an incremental backup.")
-    else:
-        logger.info("Running a full backup.")
-
     try:
+        logger = Log.instance().logger
+        # Let's create this first, as we do not support all parameters yet. This prevents having to clean up the backup if this
+        # constructor throws.
+        rsync_policy: RsyncPolicy = RsyncPolicy(args.flag)
+
+
+        incremental: bool = args.incremental
+        if not args.destination:
+            raise Exception("No destination via the -d flag specified. See --help.")
+
+        if not args.source:
+            raise Exception("No sources via the -s flag specified. See --help.")
+
+        if args.remove and args.cont:
+            raise Exception("Cannot remove or continue failed backup. Use only one flag as they exclude each other.")
+
+        if incremental:
+            logger.info("Running an incremental backup.")
+        else:
+            logger.info("Running a full backup.")
+
         config = configparser.ConfigParser()
         config.read(os.path.join(get_path_to_backup_series(args.destination), 'cfg.ini'))
         sources = args.source
@@ -313,7 +318,7 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
         continuing = False  # Indicates that the backup is continuing a previously failed backup.
         if config.has_section('ACTIVE'):
             if config['ACTIVE']['status'] == 'failed' and not args.cont and not args.remove:
-                raise Exception("Previous backup failed, either run again with cont flag enabled, with remove flag or clean up backup manually.")
+                raise Exception("Previous backup failed, either run again with --cont flag enabled, with --remove flag or clean up backup manually.")
             elif config['ACTIVE']['status'] == 'failed' and args.cont:
                 timestamp = config["ACTIVE"]['timestamp']
                 continuing: bool = True
@@ -349,7 +354,6 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
 
         active_path: PathLike[str] = get_active_backup_path(timestamp, destination, incremental, continuing)
         make_entry_to_ini_for_active_backup(destination, sources, timestamp)
-        rsync_policy: RsyncPolicy = RsyncPolicy(args.flag)
         # actually syncing the data.
         summary, rsync_cmd = sync_data(sources, str(active_path), rsync_policy)
 
