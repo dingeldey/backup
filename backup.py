@@ -287,7 +287,7 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
     if args.remove and args.cont:
         raise Exception("Cannot remove or continue failed backup. Use only one flag as they exclude each other.")
 
-    if args.incremental:
+    if incremental:
         logger.info("Running an incremental backup.")
     else:
         logger.info("Running a full backup.")
@@ -339,6 +339,7 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
         active_path: PathLike[str] = get_active_backup_path(timestamp, destination, incremental, continuing)
         make_entry_to_ini_for_active_backup(destination, sources, timestamp)
         rsync_policy: RsyncPolicy = RsyncPolicy(args.flag)
+        # actually syncing the data.
         summary, rsync_cmd = sync_data(sources, str(active_path), rsync_policy)
 
         # mark backup as success
@@ -350,24 +351,33 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
         with open(os.path.join(get_path_to_backup_series(args.destination), 'cfg.ini'), 'w') as configfile:  # save
             config.write(configfile)
 
-        if args.link_path is not None:
-            try:
-                target_symlink_path = os.path.join(os.path.join(args.destination, "current_series"), timestamp)
-                logger.info(f"Trying to create symlink to {target_symlink_path}")
-                if os.path.exists(args.link_path):
-                    os.rmdir(args.link_path)
-                Path(args.link_path).symlink_to(target_symlink_path, target_is_directory=True)
-            except Exception as e:
-                logger.error(
-                    f"I wish I could create a link for you, but you have to blame your Windows settings for this error\n"
-                    f"{str(e)}")
-
+        create_softlink_to_current_backup(args.link_path,
+                                          os.path.join(os.path.join(args.destination, "current_series"), timestamp))
         return True, summary
 
     except Exception as e:
         logger.error(e)
         logger.error('\n' + traceback.format_exc())
         return False, ChangeSummary("")
+
+
+def create_softlink_to_current_backup(link_path: str, target_symlink_path: str):
+    """
+    Creates a soft link to the most current backup for which rsync succeeded.
+    @param link_path: path to where the softlink shall be created
+    @param target_symlink_path: path to the most current backup.
+    """
+    logger = Log.instance().logger
+    if link_path is not None:
+        try:
+            logger.info(f"Trying to create symlink to {target_symlink_path}")
+            if os.path.exists(link_path):
+                os.rmdir(link_path)
+            Path(link_path).symlink_to(target_symlink_path, target_is_directory=True)
+        except Exception as e:
+            logger.error(
+                f"I wish I could create a link for you, but you have to blame your Windows settings for this error\n"
+                f"{str(e)}")
 
 
 def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
@@ -440,11 +450,14 @@ def main():
 
     if success:
         if logger.error.counter == 0:
-            logger.info(f"Backup terminated successfully, {logger.warning.counter} warnings and {logger.error.counter} errors.")
+            logger.info(
+                f"Backup terminated successfully, {logger.warning.counter} warnings and {logger.error.counter} errors.")
         else:
-            logger.info(f"Backup encountered errors, but reached a successful state. {logger.warning.counter} warnings and {logger.error.counter} errors.")
+            logger.info(
+                f"Backup encountered errors, but reached a successful state. {logger.warning.counter} warnings and {logger.error.counter} errors.")
     else:
-        logger.error(f"Backup terminated with errors, {logger.warning.counter} warnings and {logger.error.counter} errors.")
+        logger.error(
+            f"Backup terminated with errors, {logger.warning.counter} warnings and {logger.error.counter} errors.")
 
 
 if __name__ == '__main__':
