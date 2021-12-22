@@ -4,9 +4,10 @@ import json
 import os.path
 import shutil
 import subprocess
+import sys
 import traceback
 from typing import List, Tuple
-import logging
+
 from submodules.python_core_libs.logging.project_logger import Log
 from utils.changesummary import ChangeSummary
 from utils.datetimeutils import *
@@ -14,13 +15,20 @@ from utils.loggerutils import *
 from utils.rsyncpolicy import RsyncPolicy
 
 
+def get_current_series_name():
+    """
+    Return name of current backup series
+    @return: name of current backup series
+    """
+    return "active_series"
+
+
 def get_path_to_backup_series(destination_path: PathLike) -> PathLike:
     """
     @param destination_path: Backup path
     @return: Returns the backup-path with a simple addition to indicate where the current backup-series is being placed.
-             I chose 'current_series' as this places the current backup in from of the folder and makes it easy to identify.
     """
-    return Path(os.path.join(destination_path, Path("current_series")))
+    return Path(os.path.join(destination_path, Path(get_current_series_name())))
 
 
 def get_active_backup_path(timestamp: str, destination_path: PathLike, incremental: bool, continuing: bool) \
@@ -131,7 +139,7 @@ def incremental_backup(path_to_backup_series: PathLike, timestamp: str, continui
     last_backup_timestamp: str = get_timestamp_of_last_backup(config)
     logger.info(f"Making incremental backup based on backup from {last_backup_timestamp}.")
     base_path_for_incremental: PathLike[str] = Path(
-        os.path.join(os.path.join(config[last_backup_timestamp]['backup'], 'current_series'), last_backup_timestamp))
+        os.path.join(os.path.join(config[last_backup_timestamp]['backup'], get_current_series_name()), last_backup_timestamp))
 
     active_path: PathLike[str] = Path(os.path.join(path_to_backup_series, timestamp))
     logger.info(f"Backup is written to {active_path}.")
@@ -160,7 +168,12 @@ def get_timestamp_of_last_backup(config: configparser) -> str:
         # as it was not renamed upon completion of the backup.
         if sec == "ACTIVE":
             continue
-        sec_times.append(string_to_datetime(sec))
+
+        try:
+            time_stamp_of_series = string_to_datetime(sec)
+            sec_times.append(time_stamp_of_series)
+        except Exception as e:
+            raise Exception(f"Cannot convert found section entry to datetime in order to sort it. Did you rename a backup run? Raised exception reads {str(e)}")
 
     if not sec_times:
         logger.info("No timestamp found. Must be a continuing run.")
@@ -300,8 +313,7 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
         continuing = False  # Indicates that the backup is continuing a previously failed backup.
         if config.has_section('ACTIVE'):
             if config['ACTIVE']['status'] == 'failed' and not args.cont and not args.remove:
-                raise Exception("Previous backup failed, either run again with cont flag enabled, with remove flag or "
-                                "clean up backup manually.")
+                raise Exception("Previous backup failed, either run again with cont flag enabled, with remove flag or clean up backup manually.")
             elif config['ACTIVE']['status'] == 'failed' and args.cont:
                 timestamp = config["ACTIVE"]['timestamp']
                 continuing: bool = True
@@ -318,7 +330,7 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
                 logger.warning("Run-type changed to a filling backup.")
             elif config['ACTIVE']['status'] == 'failed' and args.remove:
                 failed_timestamp = config["ACTIVE"]['timestamp']
-                bkp_series_path = os.path.join(config["ACTIVE"]['backup'], "current_series")
+                bkp_series_path = os.path.join(config["ACTIVE"]['backup'], get_current_series_name())
                 failed_path = os.path.join(bkp_series_path, failed_timestamp)
                 logger.warning(f"Removing failed backup with timestamp {failed_timestamp} at {failed_path}.")
                 shutil.rmtree(failed_path, ignore_errors=True)
@@ -333,8 +345,7 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
                         logger.warning("Falling back from incremental to full backup.")
                         incremental = False
             else:
-                raise Exception("Previous backup failed or is still active. Can't handle situation :/.\nResolve "
-                                "manually, e.g. by renaming the current series, which will trigger a new series.")
+                raise Exception("Previous backup failed or is still active. Can't handle situation :/.\nResolve manually, e.g. by renaming the current series, which will trigger a new series.")
 
         active_path: PathLike[str] = get_active_backup_path(timestamp, destination, incremental, continuing)
         make_entry_to_ini_for_active_backup(destination, sources, timestamp)
@@ -352,7 +363,8 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
             config.write(configfile)
 
         create_softlink_to_current_backup(args.link_path,
-                                          os.path.join(os.path.join(args.destination, "current_series"), timestamp))
+                                          os.path.join(os.path.join(args.destination, get_current_series_name()),
+                                                       timestamp))
         return True, summary
 
     except Exception as e:
@@ -370,13 +382,17 @@ def create_softlink_to_current_backup(link_path: str, target_symlink_path: str):
     logger = Log.instance().logger
     if link_path is not None:
         try:
-            logger.info(f"Trying to create symlink to {target_symlink_path}")
-            if os.path.exists(link_path):
-                os.rmdir(link_path)
+            if os.path.islink(link_path):
+                os.unlink(link_path)
+            elif os.path.isfile(link_path):
+                raise Exception("Path specified for link is a file.")
+            elif os.path.isdir(link_path):
+                raise Exception("Path specified for link is a directory.")
             Path(link_path).symlink_to(target_symlink_path, target_is_directory=True)
         except Exception as e:
+            logger.info(f"Trying to create symlink to {target_symlink_path}")
             logger.error(
-                f"I wish I could create a link for you, but you have to blame your Windows settings for this error\n"
+                f"Trying to create symlink from '{link_path}' to '{target_symlink_path}'. Error in settings, rights or your input caused the following exception: "
                 f"{str(e)}")
 
 
@@ -439,8 +455,7 @@ def main():
 
     logfile_path: PathLike[str] = Path(os.path.join(args.log_destination, Path(timestamp + '.log')))
     if os.path.isfile(logfile_path):
-        raise Exception("You are triggering to program to quickly, wait at least a second as the timestamps only have "
-                        "a one second resolution")
+        raise Exception("You are triggering to program to quickly, wait at least a second as the timestamps only have a one second resolution")
     create_logger_ini(log_ini_path, logfile_path)
     Log.instance().set_ini(log_ini_path)
     logger.info(f"Writing log to {logfile_path}.")
@@ -448,16 +463,34 @@ def main():
 
     success, summary = backup(timestamp, args)
 
+    print_warning_and_error_summary()
     if success:
         if logger.error.counter == 0:
             logger.info(
                 f"Backup terminated successfully, {logger.warning.counter} warnings and {logger.error.counter} errors.")
+
+            sys.exit(1)
         else:
             logger.info(
                 f"Backup encountered errors, but reached a successful state. {logger.warning.counter} warnings and {logger.error.counter} errors.")
+
+            sys.exit()
     else:
         logger.error(
             f"Backup terminated with errors, {logger.warning.counter} warnings and {logger.error.counter} errors.")
+
+        sys.exit(1)
+
+
+def print_warning_and_error_summary():
+    logger = Log.instance().logger
+    logger.info("")
+    if logger.error.counter > 0:
+        logger.info(f"\n\nThe following ERRORS were encountered:\n"
+                f"======================================\n{logger.error.summary}\n\n")
+    if logger.warning.counter > 0:
+        logger.info(f"\n\nThe following WARNINGS were encountered:\n"
+                f"========================================\n{logger.warning.summary}\n\n")
 
 
 if __name__ == '__main__':
