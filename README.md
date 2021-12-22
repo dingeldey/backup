@@ -11,7 +11,7 @@ This project features a script using rsync to make backups with the possibility 
 First time you start you run something like this:
 
 ```
-python3 backup.py -f='--delete' -f='-av' -f='--recursive' -f='--no-perms' -f="--chmod=u=rw,g=r,o-rwx,-X" -s /home/user/source1 -s /home/user/source2 -d /home/backup_destination
+python3 backup.py -f="--stats" -f="--progress" -f='--delete' -f='-av' -f='--recursive' -f='--no-perms' -f="--chmod=u=rw,g=r,o-rwx,-X" -s /home/user/source1 -s /home/user/source2 -d /home/backup_destination
 ```
 where the -f option specifies the switches for rsync.
 

@@ -3,6 +3,7 @@ import configparser
 import json
 import os.path
 import shutil
+import io
 import subprocess
 import sys
 import traceback
@@ -224,11 +225,12 @@ def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPo
 
         rsync_cmd = rsync_cmd + " " + active_backup_path
         logger.info(f"rsync command reads: {rsync_cmd}")
-        out = subprocess.check_output(['rsync', *rsync_policy.parameters, *sources, active_backup_path]).decode("utf-8")
-        logger.info(f"out: {out}")
+        proc = subprocess.Popen(['rsync', *rsync_policy.parameters, *sources, active_backup_path], stdout=subprocess.PIPE)
+        out = ""
+        for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):  # or another encoding
+            logger.info(line.strip("\n"))
+            out += line
         summary: ChangeSummary = ChangeSummary(out)
-        logger.info(summary.get_summary)
-
         return summary, rsync_cmd
 
     else:
@@ -255,15 +257,13 @@ def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPo
             rsync_cmd = rsync_cmd + " " + source
 
         rsync_cmd = rsync_cmd + " " + backup_wsl_path
-
         logger.info(f"rsync command reads: {rsync_cmd}")
-
-        out = subprocess.check_output(['wsl', 'rsync', *rsync_policy.parameters, *wsl_sources, backup_wsl_path]).decode(
-            "UTF-8")
-        logger.info(f"out: {out}")
+        proc = subprocess.Popen(['wsl', 'rsync', *rsync_policy.parameters, *wsl_sources, backup_wsl_path], stdout=subprocess.PIPE)
+        out = ""
+        for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):  # or another encoding
+            logger.info(line.strip("\n"))
+            out += line
         summary: ChangeSummary = ChangeSummary(out)
-        logger.info(summary.get_summary)
-
         return summary, rsync_cmd
 
 
@@ -294,7 +294,6 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
         # Let's create this first, as we do not support all parameters yet. This prevents having to clean up the backup if this
         # constructor throws.
         rsync_policy: RsyncPolicy = RsyncPolicy(args.flag)
-
 
         incremental: bool = args.incremental
         if not args.destination:
