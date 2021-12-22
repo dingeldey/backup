@@ -5,7 +5,7 @@ This project features a script using rsync to make backups with the possibility 
 - Python3 
 - rsync
 - wsl for windows rsync
-- 
+
 ## Usage
 
 First time you start you run something like this:
