@@ -43,8 +43,8 @@ def cleanup():
         shutil.rmtree('dist')
     if os.path.isdir('build'):
         shutil.rmtree('build')
-
-    os.remove('backup.spec')
+    if os.path.isfile('build'):
+        os.remove('backup.spec')
 
 
 def make_tarfile(source_dir, output_filename):
