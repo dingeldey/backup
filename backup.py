@@ -464,34 +464,12 @@ def main():
 
     success, summary = backup(timestamp, args)
 
-    print_warning_and_error_summary()
     if success:
-        if logger.error.counter == 0:
-            logger.info(
-                f"Backup terminated successfully, {logger.warning.counter} warnings and {logger.error.counter} errors.")
-
-            sys.exit(1)
-        else:
-            logger.info(
-                f"Backup encountered errors, but reached a successful state. {logger.warning.counter} warnings and {logger.error.counter} errors.")
-
-            sys.exit()
+        logger.info(f"Backup terminated successfully.")
+        sys.exit()
     else:
-        logger.error(
-            f"Backup terminated with errors, {logger.warning.counter} warnings and {logger.error.counter} errors.")
-
+        logger.error(f"Backup terminated with errors.")
         sys.exit(1)
-
-
-def print_warning_and_error_summary():
-    logger = Log.instance().logger
-    logger.info("")
-    if logger.error.counter > 0:
-        logger.info(f"\n\nThe following ERRORS were encountered:\n"
-                f"======================================\n{logger.error.summary}\n\n")
-    if logger.warning.counter > 0:
-        logger.info(f"\n\nThe following WARNINGS were encountered:\n"
-                f"========================================\n{logger.warning.summary}\n\n")
 
 
 if __name__ == '__main__':
