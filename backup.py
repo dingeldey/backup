@@ -1,19 +1,21 @@
 import argparse
 import configparser
 import json
+import logging
 import os.path
 import shutil
 import io
 import subprocess
+import selectors
 import sys
 import traceback
 from typing import List, Tuple
-
 from submodules.python_core_libs.logging.project_logger import Log
 from utils.changesummary import ChangeSummary
 from utils.datetimeutils import *
 from utils.loggerutils import *
 from utils.rsyncpolicy import RsyncPolicy
+import zipfile
 
 
 def get_current_series_name():
@@ -225,11 +227,28 @@ def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPo
 
         rsync_cmd = rsync_cmd + " " + active_backup_path
         logger.info(f"rsync command reads: {rsync_cmd}")
-        proc = subprocess.Popen(['rsync', *rsync_policy.parameters, *sources, active_backup_path], stdout=subprocess.PIPE)
+        p = subprocess.Popen(['rsync', *rsync_policy.parameters, *sources, active_backup_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        sel = selectors.DefaultSelector()
+        sel.register(p.stdout, selectors.EVENT_READ)
+        sel.register(p.stderr, selectors.EVENT_READ)
+
         out = ""
-        for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):  # or another encoding
-            logger.info(line.strip("\n"))
-            out += line
+        continue_var = True
+        while continue_var:
+            for key, _ in sel.select():
+                data = key.fileobj.read1().decode('utf-8')
+                if not data:
+                    continue_var = False
+                elif key.fileobj is p.stdout:
+                    out += data
+                    for line in data.split('\n'):
+                        if line:
+                            logger.info(line)
+                else:
+                    out += data
+                    logger.error(data.strip('\n'))
+
         summary: ChangeSummary = ChangeSummary(out)
         return summary, rsync_cmd
 
@@ -457,19 +476,70 @@ def main():
     logfile_path: PathLike[str] = Path(os.path.join(args.log_destination, Path(timestamp + '.log')))
     if os.path.isfile(logfile_path):
         raise Exception("You are triggering to program to quickly, wait at least a second as the timestamps only have a one second resolution")
-    create_logger_ini(log_ini_path, logfile_path)
-    Log.instance().set_ini(log_ini_path)
-    logger.info(f"Writing log to {logfile_path}.")
-    remove_logger_ini(log_ini_path)
+    set_up_logger(log_ini_path, logfile_path)
 
     success, summary = backup(timestamp, args)
 
+    exit_code = 0
     if success:
-        logger.info(f"Backup terminated successfully.")
-        sys.exit()
+        if logger.error.counter == 0:
+            logger.info(
+                f"Backup terminated successfully, {logger.warning.counter} warnings and {logger.error.counter} errors.")
+        else:
+            logger.info(
+                f"Backup encountered errors, but reached a successful state. {logger.warning.counter} warnings and {logger.error.counter} errors.")
     else:
-        logger.error(f"Backup terminated with errors.")
-        sys.exit(1)
+        logger.error(
+            f"Backup terminated with errors, {logger.warning.counter} warnings and {logger.error.counter} errors.")
+        exit_code = 1
+
+    print_warning_and_error_summary()
+    logging.shutdown()
+
+    # finally zip log file
+    zf = zipfile.ZipFile(Path(str(logfile_path)+'.zip'), mode='w')
+    try:
+        zf.write(logfile_path, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+    finally:
+        zf.close()
+    os.remove(logfile_path)
+
+    sys.exit(exit_code)
+
+
+def set_up_logger(log_ini_path, logfile_path):
+    """
+    Set up logger. Formatting etc.
+    """
+    create_logger_ini(log_ini_path, logfile_path)
+    logger_inst = Log.instance()
+    logger_inst.set_ini(log_ini_path)
+    logger = logger_inst.logger
+    logger.info(f"Writing log to {logfile_path}.")
+    remove_logger_ini(log_ini_path)
+
+
+def print_warning_and_error_summary():
+    logger = Log.instance().logger
+    logger.warning.record_messages = False
+    logger.error.record_messages = False
+
+    if logger.error.counter > 0:
+        logger.error(f"\n\nThe following ERRORS were encountered:\n"
+                    f"======================================")
+
+        for err in logger.error.summary:
+            logger.error("+ " + err)
+
+    if logger.warning.counter > 0:
+        logger.warning(f"\n\nThe following WARNINGS were encountered:\n"
+                    f"========================================")
+
+        for warn in logger.warning.summary:
+            logger.warning("+ " + warn)
+
+    logger.error.record_messages = True
+    logger.warning.record_messages = True
 
 
 if __name__ == '__main__':

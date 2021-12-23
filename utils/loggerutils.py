@@ -21,7 +21,7 @@ def create_logger_ini(ini_filename: PathLike, log_filename: PathLike):
     logger_ini_content = """[formatters]
         keys=default
         [formatter_default]
-        format=<%(levelname)-3s><%(asctime)s> %(message)s <%(filename)s:%(lineno)d>'
+        format=[%(asctime)s] [%(levelname)8s]  %(message)s
         class=logging.Formatter
         [handlers]
         keys=console, file
