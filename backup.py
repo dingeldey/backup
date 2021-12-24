@@ -1,5 +1,6 @@
 import argparse
 import configparser
+import glob
 import json
 import logging
 import os.path
@@ -419,7 +420,6 @@ def create_softlink_to_current_backup(link_path: str, target_symlink_path: str):
 
 
 def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
-    logger = Log.instance().logger
     config = configparser.ConfigParser()
     config.read(os.path.join(get_path_to_backup_series(destination), 'cfg.ini'))
 
@@ -473,11 +473,7 @@ def main():
     now = datetime.datetime.now()
     timestamp = datetime_to_string(now)
 
-    logfile_path: PathLike[str] = Path(os.path.join(args.log_destination, Path(timestamp + '.log')))
-    if os.path.isfile(logfile_path):
-        raise Exception("You are triggering to program to quickly, wait at least a second as the timestamps only have a one second resolution")
-    set_up_logger(log_ini_path, logfile_path)
-
+    set_up_logger(log_ini_path, args.log_destination, timestamp)
     success, summary = backup(timestamp, args)
 
     exit_code = 0
@@ -495,28 +491,43 @@ def main():
 
     print_warning_and_error_summary()
     logging.shutdown()
-
-    # finally zip log file
-    zf = zipfile.ZipFile(Path(str(logfile_path)+'.zip'), mode='w')
-    try:
-        zf.write(logfile_path, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
-    finally:
-        zf.close()
-    os.remove(logfile_path)
-
     sys.exit(exit_code)
 
 
-def set_up_logger(log_ini_path, logfile_path):
+def zip_log_files_from_previous_runs(log_destination: str, timestamp: str):
+    logger = Log.instance().logger
+    unzipped_log_files: List = glob.glob(os.path.join(log_destination, "*.log"))
+    current_run_to_exclude = os.path.join(log_destination, f"{timestamp}.log")
+    logger.info(f"Excluding current runs log file '{current_run_to_exclude}' from zipping.")
+    logger.info(f"Zipping old log files in {log_destination}: {unzipped_log_files}")
+
+    for log_file in unzipped_log_files:
+        if log_file == current_run_to_exclude:
+            continue
+        logger.info(f"Zipping log file {log_file}")
+        zf = zipfile.ZipFile(Path(str(log_file) + '.zip'), mode='w')
+        try:
+            zf.write(log_file, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+        finally:
+            zf.close()
+        os.remove(log_file)
+
+
+def set_up_logger(log_ini_path: PathLike, log_destination: str, timestamp: str):
     """
     Set up logger. Formatting etc.
     """
+    logfile_path: PathLike[str] = Path(os.path.join(log_destination, Path(timestamp + '.log')))
+    if os.path.isfile(logfile_path):
+        raise Exception("You are triggering to program to quickly, wait at least a second as the timestamps only have a one second resolution")
+
     create_logger_ini(log_ini_path, logfile_path)
     logger_inst = Log.instance()
     logger_inst.set_ini(log_ini_path)
     logger = logger_inst.logger
     logger.info(f"Writing log to {logfile_path}.")
     remove_logger_ini(log_ini_path)
+    zip_log_files_from_previous_runs(log_destination, timestamp)
 
 
 def print_warning_and_error_summary():
