@@ -526,14 +526,19 @@ def print_warning_and_error_summary():
                     f"======================================")
 
         for err in logger.error.summary:
-            logger.error("+ " + err)
+            if err[0] == "\n":
+                err = err[1:]
+            logger.error("+ " + err.replace("\n", "\n                                        "))
 
     if logger.warning.counter > 0:
         logger.warning(f"\n\nThe following WARNINGS were encountered:\n"
                     f"========================================")
 
         for warn in logger.warning.summary:
-            logger.warning("+ " + warn)
+            if warn[0] == "\n":
+                warn = err[1:]
+            warn[0].replace("\n", "")
+            logger.warning("+ " + warn.replace("\n", "\n                                        "))
 
     logger.error.record_messages = True
     logger.warning.record_messages = True
