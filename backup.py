@@ -228,27 +228,11 @@ def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPo
 
         rsync_cmd = rsync_cmd + " " + active_backup_path
         logger.info(f"rsync command reads: {rsync_cmd}")
-        p = subprocess.Popen(['rsync', *rsync_policy.parameters, *sources, active_backup_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-        sel = selectors.DefaultSelector()
-        sel.register(p.stdout, selectors.EVENT_READ)
-        sel.register(p.stderr, selectors.EVENT_READ)
-
         out = ""
-        continue_var = True
-        while continue_var:
-            for key, _ in sel.select():
-                data = key.fileobj.read1().decode('utf-8')
-                if not data:
-                    continue_var = False
-                elif key.fileobj is p.stdout:
-                    out += data
-                    for line in data.split('\n'):
-                        if line:
-                            logger.info(line)
-                else:
-                    out += data
-                    logger.error(data.strip('\n'))
+        with subprocess.Popen(['rsync', *rsync_policy.parameters, *sources, active_backup_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1, universal_newlines=True) as p:
+            for line in p.stdout:
+                out += line
+                logger.info(line.strip('\n'))  # process line here
 
         summary: ChangeSummary = ChangeSummary(out)
         return summary, rsync_cmd
@@ -278,11 +262,13 @@ def sync_data(sources: List[str], active_backup_path: str, rsync_policy: RsyncPo
 
         rsync_cmd = rsync_cmd + " " + backup_wsl_path
         logger.info(f"rsync command reads: {rsync_cmd}")
-        proc = subprocess.Popen(['wsl', 'rsync', *rsync_policy.parameters, *wsl_sources, backup_wsl_path], stdout=subprocess.PIPE)
         out = ""
-        for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):  # or another encoding
-            logger.info(line.strip("\n"))
-            out += line
+        with subprocess.Popen(['wsl', 'rsync', *rsync_policy.parameters, *wsl_sources, backup_wsl_path], stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, bufsize=1, universal_newlines=True) as p:
+            for line in p.stdout:
+                out += line
+                logger.info(line.strip('\n'))  # process line here
+
         summary: ChangeSummary = ChangeSummary(out)
         return summary, rsync_cmd
 
