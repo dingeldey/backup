@@ -197,11 +197,11 @@ def check_if_sources_are_empty(sources: List[str]):
         if os.path.isfile(source):
             continue
 
-        if not os.path.isdir(source):
+        if not os.path.isdir(source) or os.path.isfile(source):
             raise Exception("Specified source does not exist.")
 
         # check if empty
-        if not os.listdir(source):
+        if not any(os.scandir(source)):
             raise Exception("Directory is empty. This causes a backup to fail")
 
 
@@ -288,11 +288,12 @@ def rename_config_section(cfg_parser: configparser, section_from: str, section_t
     cfg_parser.remove_section(section_from)
 
 
-def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
+def backup(timestamp: str, args, runtype: str) -> Tuple[bool, ChangeSummary]:
     """
     Main function handling your backup request.
     @param timestamp: timestamp to identify backup
     @param args: Arguments as parsed by argparser
+    @param runtype: either 'full' or 'incr'
     @return: True on success else False
     """
     try:
@@ -301,7 +302,10 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
         # constructor throws.
         rsync_policy: RsyncPolicy = RsyncPolicy(args.flag)
 
-        incremental: bool = args.incremental
+        incremental: bool = False
+        if runtype == 'incr':
+            incremental =True
+
         if not args.destination:
             raise Exception("No destination via the -d flag specified. See --help.")
 
@@ -342,7 +346,7 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
                 failed_timestamp = config["ACTIVE"]['timestamp']
                 bkp_series_path = os.path.join(config["ACTIVE"]['backup'], get_current_series_name())
                 failed_path = os.path.join(bkp_series_path, failed_timestamp)
-                logger.warning(f"Removing failed backup with timestamp {failed_timestamp} at {failed_path}.")
+                logger.warning(f"Backup at {failed_path} will be removed as it failed in a previous run.")
                 shutil.rmtree(failed_path, ignore_errors=True)
                 if config.has_section("ACTIVE"):
                     config.remove_section("ACTIVE")
@@ -351,7 +355,7 @@ def backup(timestamp: str, args) -> Tuple[bool, ChangeSummary]:
                         config.write(configfile)
                 if not config.sections():
                     logger.warning("The failed backup was the backup series full backup. Recreating that.")
-                    if args.incremental:
+                    if incremental:
                         logger.warning("Falling back from incremental to full backup.")
                         incremental = False
             else:
@@ -423,7 +427,7 @@ def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--incremental', action='store_true', help="Indicate an incremental backup is desired.")
+    parser.add_argument('-t', '--runtype', help="Specify 'full' or 'incr', default: 'full'")
     parser.add_argument('-d', '--destination', help="Path to destination")
     parser.add_argument('-l', '--log_destination', default='logs', help="Path to log files to be used.")
     parser.add_argument('--link_path', help="Specify a path to a symbolic link to be created pointing to the most"
@@ -441,6 +445,10 @@ def main():
                                                                                     'to pass --delete to rsync')
 
     args, unknown = parser.parse_known_args()
+
+    runtype = "full"
+    if args.runtype:
+        runtype = args.runtype
 
     if args.cwd is not None:
         os.chdir(Path(args.cwd))
@@ -460,7 +468,7 @@ def main():
     timestamp = datetime_to_string(now)
 
     set_up_logger(log_ini_path, args.log_destination, timestamp)
-    success, summary = backup(timestamp, args)
+    success, summary = backup(timestamp, args, runtype)
 
     exit_code = 0
     if success:
