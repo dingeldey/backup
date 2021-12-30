@@ -485,6 +485,16 @@ def main():
 
     print_warning_and_error_summary()
     logging.shutdown()
+
+    unzipped_log_files: List = glob.glob(os.path.join(args.log_destination, "*.log"))
+    for log_file in unzipped_log_files:
+        zf = zipfile.ZipFile(str(os.path.abspath(Path(str(log_file))) + '.zip'), mode='w')
+        try:
+            zf.write(log_file, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+        finally:
+            zf.close()
+        os.remove(log_file)
+
     sys.exit(exit_code)
 
 
