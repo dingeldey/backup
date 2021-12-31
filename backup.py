@@ -1,5 +1,6 @@
 import argparse
 import configparser
+import glob
 import json
 import logging
 import os.path
@@ -10,12 +11,10 @@ from typing import List, Tuple
 from submodules.python_core_libs.logging.project_logger import Log
 from utils.changesummary import ChangeSummary
 from utils.datetimeutils import *
-from utils.log_zipper import LogZipper
-from utils.loggerutils import set_up_logger
+from utils.loggerutils import *
 from utils.rsync_caller import RsyncCaller
 from utils.rsyncpolicy import RsyncPolicy
-from pathlib import Path
-from os import PathLike
+import zipfile
 
 
 def get_current_series_name():
@@ -211,13 +210,13 @@ def backup(timestamp: str, args, runtype: str) -> Tuple[bool, ChangeSummary]:
     """
     try:
         logger = Log.instance().logger
-        # Let's create this first, as we do not support all parameters yet.
-        # This prevents having to clean up the backup if this constructor throws.
+        # Let's create this first, as we do not support all parameters yet. This prevents having to clean up the backup if this
+        # constructor throws.
         rsync_policy: RsyncPolicy = RsyncPolicy(args.flag)
 
         incremental: bool = False
         if runtype == 'incr':
-            incremental = True
+            incremental =True
 
         if not args.destination:
             raise Exception("No destination via the -d flag specified. See --help.")
@@ -318,8 +317,8 @@ def create_softlink_to_current_backup(link_path: str, target_symlink_path: str):
         except Exception as e:
             logger.info(f"Trying to create symlink to {target_symlink_path}")
             logger.error(
-                f"Trying to create symlink from '{link_path}' to '{target_symlink_path}'. "
-                f"Error in settings, rights or your input caused the following exception: {str(e)}")
+                f"Trying to create symlink from '{link_path}' to '{target_symlink_path}'. Error in settings, rights or your input caused the following exception: "
+                f"{str(e)}")
 
 
 def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
@@ -340,50 +339,6 @@ def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
 
 def main():
     parser = argparse.ArgumentParser()
-    adding_parser_arguments(parser)
-    args, unknown = parser.parse_known_args()
-
-    runtype = "full"
-    if args.runtype:
-        runtype = args.runtype
-
-    if args.cwd is not None:
-        os.chdir(Path(args.cwd))
-        print(os.getcwd())
-
-    log_path: Path = Path("logs/")
-    if args.log_destination is not None:
-        log_path = Path(args.log_destination)
-
-    log_path.mkdir(parents=True, exist_ok=True)
-    logger = Log.instance().logger
-    now = datetime.datetime.now()
-    timestamp = datetime_to_string(now)
-    set_up_logger(args.log_destination, timestamp)
-    LogZipper.zip_log_files_from_previous_runs(args.log_destination, os.path.join(args.log_destination, f"{timestamp}.log"))
-    success, summary = backup(timestamp, args, runtype)
-
-    exit_code = 0
-    if success:
-        if logger.error.counter == 0:
-            logger.info(
-                f"Backup terminated successfully, {logger.warning.counter} warnings and {logger.error.counter} errors.")
-        else:
-            logger.info(
-                f"Backup encountered errors, but reached a successful state. {logger.warning.counter} warnings and {logger.error.counter} errors.")
-    else:
-        logger.error(
-            f"Backup terminated with errors, {logger.warning.counter} warnings and {logger.error.counter} errors.")
-        exit_code = 1
-
-    Log.instance().print_log_summary()
-    logging.shutdown()
-
-    LogZipper.zip_log_files_from_previous_runs(args.log_destination)
-    sys.exit(exit_code)
-
-
-def adding_parser_arguments(parser):
     parser.add_argument('-t', '--runtype', help="Specify 'full' or 'incr', default: 'full'")
     parser.add_argument('-d', '--destination', help="Path to destination")
     parser.add_argument('-l', '--log_destination', default='logs', help="Path to log files to be used.")
@@ -400,6 +355,123 @@ def adding_parser_arguments(parser):
     parser.add_argument('-f', '--flag', action='append', metavar='rsync_flag', help='Flag to be be passed to rsync. '
                                                                                     'Use like this -f --delete, '
                                                                                     'to pass --delete to rsync')
+
+    args, unknown = parser.parse_known_args()
+
+    runtype = "full"
+    if args.runtype:
+        runtype = args.runtype
+
+    if args.cwd is not None:
+        os.chdir(Path(args.cwd))
+        print(os.getcwd())
+
+    log_path: Path = Path("logs/")
+    if args.log_destination is not None:
+        log_path = Path(args.log_destination)
+
+    log_path.mkdir(parents=True, exist_ok=True)
+    log_ini_path: PathLike = Path(os.path.join(log_path, "logger.ini"))
+
+    remove_logger_ini(log_ini_path)
+    logger = Log.instance().logger
+
+    now = datetime.datetime.now()
+    timestamp = datetime_to_string(now)
+
+    set_up_logger(log_ini_path, args.log_destination, timestamp)
+    success, summary = backup(timestamp, args, runtype)
+
+    exit_code = 0
+    if success:
+        if logger.error.counter == 0:
+            logger.info(
+                f"Backup terminated successfully, {logger.warning.counter} warnings and {logger.error.counter} errors.")
+        else:
+            logger.info(
+                f"Backup encountered errors, but reached a successful state. {logger.warning.counter} warnings and {logger.error.counter} errors.")
+    else:
+        logger.error(
+            f"Backup terminated with errors, {logger.warning.counter} warnings and {logger.error.counter} errors.")
+        exit_code = 1
+
+    print_warning_and_error_summary()
+    logging.shutdown()
+
+    unzipped_log_files: List = glob.glob(os.path.join(args.log_destination, "*.log"))
+    for log_file in unzipped_log_files:
+        zf = zipfile.ZipFile(str(os.path.abspath(Path(str(log_file))) + '.zip'), mode='w')
+        try:
+            zf.write(log_file, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+        finally:
+            zf.close()
+        os.remove(log_file)
+
+    sys.exit(exit_code)
+
+
+def zip_log_files_from_previous_runs(log_destination: str, timestamp: str):
+    logger = Log.instance().logger
+    unzipped_log_files: List = glob.glob(os.path.join(log_destination, "*.log"))
+    current_run_to_exclude = os.path.join(log_destination, f"{timestamp}.log")
+    logger.info(f"Excluding current runs log file '{current_run_to_exclude}' from zipping.")
+    logger.info(f"Zipping old log files in {log_destination}: {unzipped_log_files}")
+
+    for log_file in unzipped_log_files:
+        if log_file == current_run_to_exclude:
+            continue
+        logger.info(f"Zipping log file {log_file}")
+        zf = zipfile.ZipFile(Path(str(log_file) + '.zip'), mode='w')
+        try:
+            zf.write(log_file, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+        finally:
+            zf.close()
+        os.remove(log_file)
+
+
+def set_up_logger(log_ini_path: PathLike, log_destination: str, timestamp: str):
+    """
+    Set up logger. Formatting etc.
+    """
+    logfile_path: PathLike[str] = Path(os.path.join(log_destination, Path(timestamp + '.log')))
+    if os.path.isfile(logfile_path):
+        raise Exception("You are triggering to program to quickly, wait at least a second as the timestamps only have a one second resolution")
+
+    create_logger_ini(log_ini_path, logfile_path)
+    logger_inst = Log.instance()
+    logger_inst.set_ini(log_ini_path)
+    logger = logger_inst.logger
+    logger.info(f"Writing log to {logfile_path}.")
+    remove_logger_ini(log_ini_path)
+    zip_log_files_from_previous_runs(log_destination, timestamp)
+
+
+def print_warning_and_error_summary():
+    logger = Log.instance().logger
+    logger.warning.record_messages = False
+    logger.error.record_messages = False
+
+    if logger.error.counter > 0:
+        logger.error(f"\n\nThe following ERRORS were encountered:\n"
+                    f"======================================")
+
+        for err in logger.error.summary:
+            if err[0] == "\n":
+                err = err[1:]
+            logger.error("+ " + err.replace("\n", "\n                                        "))
+
+    if logger.warning.counter > 0:
+        logger.warning(f"\n\nThe following WARNINGS were encountered:\n"
+                    f"========================================")
+
+        for warn in logger.warning.summary:
+            if warn[0] == "\n":
+                warn = err[1:]
+            warn[0].replace("\n", "")
+            logger.warning("+ " + warn.replace("\n", "\n                                        "))
+
+    logger.error.record_messages = True
+    logger.warning.record_messages = True
 
 
 if __name__ == '__main__':
