@@ -35,18 +35,6 @@ def build():
 
 def cleanup():
     """
-    Cleanup directory from build.
-    """
-    if os.path.isdir('__pycache__'):
-        shutil.rmtree('__pycache__')
-    if os.path.isdir('dist'):
-        shutil.rmtree('dist')
-    if os.path.isdir('build'):
-        shutil.rmtree('build')
-    if os.path.isfile('backup.spec'):
-
-def make_release():
-    """
     Make a directory for the release and pack it with all dependencies.
     """
     if os.path.isdir('release'):
