@@ -390,7 +390,7 @@ def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
     # this may happen if we encounter a failed backup
     if not config.has_section("ACTIVE"):
         config.add_section("ACTIVE")
-    config['ACTIVE']['timestamp'] = timestampsdfasdf
+    config['ACTIVE']['timestamp'] = timestampsdfasdfdsfyfd
     config['ACTIVE']['status'] = "failed"
     config['ACTIVE']['sources'] = json.dumps(sources)
     config['ACTIVE']['backup'] = str(destination)
