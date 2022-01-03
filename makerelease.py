@@ -44,18 +44,6 @@ def cleanup():
     if os.path.isdir('build'):
         shutil.rmtree('build')
     if os.path.isfile('backup.spec'):
-        os.remove('backup.spec') 
-
-
-def make_tarfile(source_dir, output_filename):
-    """
-    Create a tar.gz archive
-    @param output_filename: output path
-    @param source_dir: input dir
-    """
-    with tarfile.open(output_filename, "w:gz") as tar:
-        tar.add(source_dir, arcname=os.path.basename(source_dir))
-
 
 def make_release():
     """
