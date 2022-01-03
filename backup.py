@@ -1,11 +1,3 @@
-def get_current_series_name():
-    """
-    Return name of current backup series
-    @return: name of current backup series
-    """
-    return "active_series"
-
-
 def get_path_to_backup_series(destination_path: PathLike) -> PathLike:
     """
     @param destination_path: Backup path
