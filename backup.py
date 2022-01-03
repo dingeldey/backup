@@ -377,6 +377,13 @@ def create_softlink_to_current_backup(link_path: str, target_symlink_path: str):
 
 
 def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
+    """
+    And more
+    @param destination:
+    @param sources:
+    @param timestamp:
+    @return:
+    """
     config = configparser.ConfigParser()
     config.read(os.path.join(get_path_to_backup_series(destination), 'cfg.ini'))
 
@@ -393,6 +400,10 @@ def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
 
 
 def main():
+    """
+
+    @return:
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--incremental', action='store_true', help="Indicate an incremental backup is desired.")
     parser.add_argument('-d', '--destination', help="Path to destination")
@@ -452,6 +463,12 @@ def main():
 
 
 def zip_log_files_from_previous_runs(log_destination: str, timestamp: str):
+    """
+    Commenting
+    @param log_destination:
+    @param timestamp:
+    @return:
+    """
     logger = Log.instance().logger
     unzipped_log_files: List = glob.glob(os.path.join(log_destination, "*.log"))
     current_run_to_exclude = os.path.join(log_destination, f"{timestamp}.log")
@@ -488,6 +505,10 @@ def set_up_logger(log_ini_path: PathLike, log_destination: str, timestamp: str):
 
 
 def print_warning_and_error_summary():
+    """
+    Summary
+    @return:
+    """
     logger = Log.instance().logger
     logger.warning.record_messages = False
     logger.error.record_messages = False
