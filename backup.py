@@ -382,7 +382,7 @@ def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
     @param destination:
     @param sources:
     @param timestamp:
-    @return: Blabla
+    @return: Blablasdfsdf
     """
     config = configparser.ConfigParser()
     config.read(os.path.join(get_path_to_backup_series(destination), 'cfg.ini'))
