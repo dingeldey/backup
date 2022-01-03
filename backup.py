@@ -496,12 +496,6 @@ def set_up_logger(log_ini_path: PathLike, log_destination: str, timestamp: str):
         raise Exception("You are triggering to program to quickly, wait at least a second as the timestamps only have a one second resolution")
 
     create_logger_ini(log_ini_path, logfile_path)
-    logger_inst = Log.instance()
-    logger_inst.set_ini(log_ini_path)
-    logger = logger_inst.logger
-    logger.info(f"Writing log to {logfile_path}.")
-    remove_logger_ini(log_ini_path)
-    zip_log_files_from_previous_runs(log_destination, timestamp)
 
 
 def print_warning_and_error_summary():
