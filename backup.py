@@ -377,6 +377,13 @@ def create_softlink_to_current_backup(link_path: str, target_symlink_path: str):
 
 
 def make_entry_to_ini_for_active_backup(destination, sources, timestamp):
+    """
+    And more
+    @param destination:
+    @param sources:
+    @param timestamp:
+    @return: Blabla
+    """
     config = configparser.ConfigParser()
     config.read(os.path.join(get_path_to_backup_series(destination), 'cfg.ini'))
 
